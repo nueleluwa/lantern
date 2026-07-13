@@ -6,8 +6,8 @@ Status of each MVP_SCOPE.md phase, kept in sync with what's actually in the repo
 
 | Item | Status |
 | --- | --- |
-| OSM base map, night palette, config-driven bbox | Built — style is a **placeholder** (MapLibre demo style), needs real Maputnik authoring per `DESIGN_SYSTEM.md` before launch |
-| Segment model + PostGIS storage, seeded from OSM ways | Built (`scripts/seed-osm-ways.ts`) |
+| OSM base map, night palette, config-driven bbox | Built and **live-verified** against real Port Harcourt data (1171 segments seeded). Style is now real OpenStreetMap raster tiles (was a blank placeholder — MapLibre's demo style had no coverage for this location) — still not the authored dark vector style `DESIGN_SYSTEM.md` requires |
+| Segment model + PostGIS storage, seeded from OSM ways | Built and **live-verified** (`scripts/seed-osm-ways.ts`) against a provisioned Supabase project. Found and fixed: excluding primary/trunk roads as "not pedestrian relevant" fragmented the routing graph into 100+ disconnected islands — broadened the filter |
 | Tag submission flow (anonymous) | Built |
 | Aggregate scoring (day/night, decay-weighted) | Built (`src/lib/scoring.ts`) |
 | Segment detail bottom sheet | Built |
@@ -30,16 +30,17 @@ Status of each MVP_SCOPE.md phase, kept in sync with what's actually in the repo
 
 | Item | Status |
 | --- | --- |
-| Route suggestion (prefers higher-scored segments, not a strict router) | Built (pgRouting) — **needs load-testing and a live Supabase+pgRouting instance to validate**; never built/tested against a real database in this repo's history |
-| Live share / walk-with-me | Built — Redis-only, ephemeral |
-| B2B/B2G aggregated data export | Built, API-key gated |
+| Route suggestion (prefers higher-scored segments, not a strict router) | Built and **live-verified end-to-end** against the real Supabase+pgRouting project — returns real multi-segment paths with correct geometry/cost. Found and fixed 3 real bugs in the process (ambiguous `pgr_dijkstra` overload, unreliable raw-SQL array binding, bigint-as-string sentinel comparison) — see `CHANGELOG.md`. Routing graph is still fragmented into multiple disconnected components (largest tested: 82 nodes) rather than one connected network; not yet root-caused past the highway-filter fix |
+| Live share / walk-with-me | Built — Redis-only, ephemeral. **Not yet live-tested** (Upstash was provisioned after this was last checked) |
+| B2B/B2G aggregated data export | Built, API-key gated. **Not yet live-tested** |
 | Expansion beyond launch geography | Config supports multiple areas; only one is populated |
 
 ## Open questions (unresolved — do not silently assume an answer)
 
 - **Who moderates?** PRD.md never answers this (Lantern staff vs. a delegated community lead like the Chidinma persona). `/moderation` currently uses a single shared `ADMIN_SECRET` — fine for one operator, wrong for a team. Revisit before onboarding more than one moderator.
 - **Real launch neighborhood bbox.** `src/config/launch-area.ts` has placeholder coordinates. Needs the actual Port Harcourt neighborhood/campus decided in `PROJECT.md`'s "Geography for launch."
-- **Authored map style.** Still MapLibre's public demo style. `DESIGN_SYSTEM.md` requires a real dark vector style (self-hosted OpenMapTiles + Maputnik, or a reskinned open dark base).
+- **Authored map style.** Now plain OpenStreetMap raster tiles (real data, but unstyled). `DESIGN_SYSTEM.md` requires a real dark vector style (self-hosted OpenMapTiles + Maputnik, or a reskinned open dark base).
+- **Routing graph connectivity.** Live-tested and working, but the graph is fragmented into many disconnected components rather than one network even after broadening the highway filter to include primary/trunk roads. Needs further investigation (topology snapping tolerance? missing way types? genuine gaps in OSM coverage for this bbox?) before routing can be trusted city-wide rather than just within whichever component the two query points happen to share.
 
 ## Decisions made without an explicit spec answer (logged for review)
 
@@ -51,10 +52,17 @@ These were genuine gaps in the docs, resolved with a judgment call rather than b
 - Route cost multipliers (lit_safe=1, caution=2, avoid=5, unrated=1.5) are a starting point, not a tuned value — revisit once there's real usage data.
 - Live-share position updates every 15s client-side, 3-minute Redis TTL, 4-hour session ceiling — reasonable defaults, not spec'd anywhere.
 
+## Live infrastructure (provisioned 2026-07-13)
+
+- Supabase project `lantern` (ref `hjaiivmybvfawtjtdfun`, eu-west-2), `postgis` + `pgrouting` enabled, schema migrated, 1171 segments seeded from real Port Harcourt OSM data, routing topology built.
+- Upstash Redis database `lantern` provisioned, eviction enabled (all our keys are short-TTL cache/ephemeral state — Postgres is the only durable store, so evict-on-pressure is safer than reject-on-pressure here).
+- `CRON_SECRET` / `ADMIN_SECRET` generated and set locally in `.env` (not committed).
+- Not yet done: Vercel project/deployment. Everything above has only been run against a local dev server pointed at the live Supabase/Upstash instances.
+
 ## Before this can actually launch
 
-1. Pick and configure the real launch neighborhood bbox.
-2. Author the real dark map style per `DESIGN_SYSTEM.md`.
-3. Provision the real Supabase project (enable `postgis` + `pgrouting`), run both SQL scripts in `scripts/`, run the OSM seed script.
+1. Pick and name the real launch neighborhood (the seeded bbox sits on real Port Harcourt streets already, but was never deliberately chosen — still says `"TODO: name the launch neighborhood"`).
+2. Author the real dark map style per `DESIGN_SYSTEM.md` (currently plain OSM raster tiles).
+3. Root-cause the routing graph fragmentation (see Open Questions above) before trusting routing beyond ad hoc same-component testing.
 4. Decide real moderator identity/roles and replace the shared-secret gate.
-5. Load-test the routing endpoint against a real pgRouting topology — it has not been exercised against a live database in this repo.
+5. Deploy to Vercel and confirm the cron job actually fires on schedule against the live project.
