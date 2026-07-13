@@ -1,6 +1,7 @@
-import { and, eq, gte, ne } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "./db";
 import { segments, tags } from "@/db/schema";
+import { bumpTrustForCorroboratedContributors } from "./contributor-progress";
 
 // DATA_MODEL.md "Scoring algorithm" — implemented as specified:
 //   weight = base_weight * exp(-days_since_tag / half_life_days)
@@ -36,6 +37,7 @@ type ScoringTag = {
   kind: "standard" | "infrastructure" | "lit_tonight";
   weight: number;
   status: "active" | "under_review" | "removed";
+  contributorId: string | null;
 };
 
 function decayedWeight(tag: ScoringTag, now: Date): number {
@@ -92,21 +94,50 @@ function applyStabilityWindow(
 ) {
   if (computedBand === committedBand) {
     // Stable at the current public value — clear any in-flight pending change.
-    return { committedBand, pendingBand: null, pendingSince: null };
+    return { committedBand, pendingBand: null, pendingSince: null, justCommitted: false };
   }
 
   if (computedBand === pendingBand && pendingSince) {
     const stableFor = now.getTime() - pendingSince.getTime();
     if (stableFor >= STABILITY_WINDOW_MS) {
       // Held stable for the full window — commit it.
-      return { committedBand: computedBand, pendingBand: null, pendingSince: null };
+      return {
+        committedBand: computedBand,
+        pendingBand: null,
+        pendingSince: null,
+        justCommitted: true,
+      };
     }
     // Still within the window — keep waiting.
-    return { committedBand, pendingBand, pendingSince };
+    return { committedBand, pendingBand, pendingSince, justCommitted: false };
   }
 
   // A new candidate band — start (or restart) the stability clock.
-  return { committedBand, pendingBand: computedBand, pendingSince: now };
+  return { committedBand, pendingBand: computedBand, pendingSince: now, justCommitted: false };
+}
+
+const BAND_MATCHING_FEELING: Record<"lit_safe" | "caution" | "avoid", "safe" | "caution" | "avoid"> = {
+  lit_safe: "safe",
+  caution: "caution",
+  avoid: "avoid",
+};
+
+function corroboratingContributorIds(
+  allTags: ScoringTag[],
+  bucket: Bucket,
+  committedBand: Band
+): string[] {
+  if (committedBand === "unrated") return [];
+  const matchingFeeling = BAND_MATCHING_FEELING[committedBand];
+  return allTags
+    .filter(
+      (tag) =>
+        tag.status !== "removed" &&
+        bucketMatches(bucket, tag.timeOfDay) &&
+        tag.safetyFeeling === matchingFeeling &&
+        tag.contributorId !== null
+    )
+    .map((tag) => tag.contributorId as string);
 }
 
 export async function recalculateSegment(segmentId: string, now = new Date()) {
@@ -121,6 +152,7 @@ export async function recalculateSegment(segmentId: string, now = new Date()) {
       kind: tags.kind,
       weight: tags.weight,
       status: tags.status,
+      contributorId: tags.contributorId,
     })
     .from(tags)
     .where(and(eq(tags.segmentId, segmentId), ne(tags.status, "removed")));
@@ -154,6 +186,17 @@ export async function recalculateSegment(segmentId: string, now = new Date()) {
       pendingNightScoreSince: night.pendingSince,
     })
     .where(eq(segments.id, segmentId));
+
+  if (day.justCommitted) {
+    await bumpTrustForCorroboratedContributors(
+      corroboratingContributorIds(segmentTags, "day", day.committedBand)
+    );
+  }
+  if (night.justCommitted) {
+    await bumpTrustForCorroboratedContributors(
+      corroboratingContributorIds(segmentTags, "night", night.committedBand)
+    );
+  }
 }
 
 /**

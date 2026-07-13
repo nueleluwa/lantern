@@ -7,6 +7,8 @@ import { segments, tags } from "@/db/schema";
 import { checkAndIncrementTagRateLimit } from "@/lib/rate-limit";
 import { invalidateSegmentCache } from "@/lib/redis";
 import { recalculateSegment } from "@/lib/scoring";
+import { getContributorIdFromCookie } from "@/lib/contributor-session";
+import { recordContribution } from "@/lib/contributor-progress";
 
 const bodySchema = z.object({
   timeOfDay: z.enum(["day", "evening", "night"]),
@@ -54,11 +56,14 @@ export async function POST(
     return NextResponse.json({ error: "Segment not found" }, { status: 404 });
   }
 
+  const contributorId = await getContributorIdFromCookie();
+
   const [tag] = await db
     .insert(tags)
     .values({
       segmentId,
       deviceId,
+      contributorId,
       timeOfDay: body.timeOfDay,
       lighting: body.lighting,
       safetyFeeling: body.safetyFeeling,
@@ -67,6 +72,10 @@ export async function POST(
       kind: body.kind,
     })
     .returning();
+
+  if (contributorId) {
+    await recordContribution(contributorId);
+  }
 
   await db
     .update(segments)

@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { TagForm } from "./TagForm";
+import { LitTonightQuickAction } from "./LitTonightQuickAction";
+import { ShareButton } from "./ShareButton";
 import { FlagButton } from "../moderation/FlagButton";
 
 type SegmentDetail = {
@@ -122,15 +124,22 @@ export function TagSheet({
 
       {detail && (
         <>
-          <h2
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: "var(--text-display)",
-              color: BAND_COLOR[band ?? "unrated"],
-            }}
-          >
-            {BAND_LABEL[band ?? "unrated"]}
-          </h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <h2
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: "var(--text-display)",
+                color: BAND_COLOR[band ?? "unrated"],
+              }}
+            >
+              {BAND_LABEL[band ?? "unrated"]}
+            </h2>
+            <ShareButton
+              segmentId={segmentId}
+              segmentName={detail.segment.name}
+              band={band ?? "unrated"}
+            />
+          </div>
           <p style={{ color: "var(--mist-100)", fontSize: "var(--text-body)" }}>
             {detail.segment.name ?? "Unnamed street"}
           </p>
@@ -151,6 +160,10 @@ export function TagSheet({
               No reports yet — be the first to tag this street.
             </p>
           )}
+
+          <div style={{ marginTop: "var(--space-2)" }}>
+            <LitTonightQuickAction segmentId={segmentId} />
+          </div>
 
           {!showForm && (
             <button

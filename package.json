@@ -12,7 +12,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "seed:osm-ways": "tsx scripts/seed-osm-ways.ts"
+    "seed:osm-ways": "tsx scripts/seed-osm-ways.ts",
+    "seed:partner": "tsx scripts/import-partner-seed.ts"
   },
   "dependencies": {
     "next": "^15.0.0",
