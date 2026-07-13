@@ -3,7 +3,12 @@ import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { segments } from "@/db/schema";
-import { redis, segmentsCacheKey, SEGMENT_CACHE_TTL_SECONDS } from "@/lib/redis";
+import {
+  redis,
+  segmentsCacheKey,
+  recordSegmentInCacheKey,
+  SEGMENT_CACHE_TTL_SECONDS,
+} from "@/lib/redis";
 
 const querySchema = z.object({
   bbox: z
@@ -68,6 +73,7 @@ export async function GET(request: NextRequest) {
   };
 
   await redis.set(cacheKey, featureCollection, { ex: SEGMENT_CACHE_TTL_SECONDS });
+  await Promise.all(rows.map((row) => recordSegmentInCacheKey(row.id, cacheKey)));
 
   return NextResponse.json(featureCollection);
 }

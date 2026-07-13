@@ -7,6 +7,7 @@ import { DEFAULT_LAUNCH_AREA } from "@/config/launch-area";
 import { PLACEHOLDER_MAP_STYLE_URL } from "@/styles/map-style";
 import { SegmentLayer } from "./SegmentLayer";
 import { DayNightToggle } from "./DayNightToggle";
+import { TagSheet } from "@/components/tagging/TagSheet";
 
 type TimeOfDay = "day" | "night";
 
@@ -16,6 +17,7 @@ export function MapView() {
   const [loading, setLoading] = useState(true);
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("night");
   const [segments, setSegments] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -68,6 +70,46 @@ export function MapView() {
     };
   }, [map, timeOfDay]);
 
+  // PRD.md Flow A step 3: "Tap a segment -> see tag breakdown..."
+  useEffect(() => {
+    if (!map) return;
+
+    const layerIds = ["segments-safe", "segments-caution", "segments-avoid", "segments-unrated"];
+
+    const handleClick = (e: maplibregl.MapLayerMouseEvent) => {
+      const feature = e.features?.[0];
+      const id = feature?.properties?.id;
+      if (id) setSelectedSegmentId(id);
+    };
+
+    const setPointer = () => {
+      map.getCanvas().style.cursor = "pointer";
+    };
+    const unsetPointer = () => {
+      map.getCanvas().style.cursor = "";
+    };
+
+    const attach = () => {
+      for (const layerId of layerIds) {
+        if (!map.getLayer(layerId)) continue;
+        map.on("click", layerId, handleClick);
+        map.on("mouseenter", layerId, setPointer);
+        map.on("mouseleave", layerId, unsetPointer);
+      }
+    };
+
+    if (map.isStyleLoaded()) attach();
+    else map.once("load", attach);
+
+    return () => {
+      for (const layerId of layerIds) {
+        map.off("click", layerId, handleClick);
+        map.off("mouseenter", layerId, setPointer);
+        map.off("mouseleave", layerId, unsetPointer);
+      }
+    };
+  }, [map, segments]);
+
   return (
     <div style={{ position: "relative", width: "100%", height: "100dvh" }}>
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
@@ -100,6 +142,14 @@ export function MapView() {
       </div>
 
       <SegmentLayer map={map} data={segments} />
+
+      {selectedSegmentId && (
+        <TagSheet
+          segmentId={selectedSegmentId}
+          timeOfDay={timeOfDay}
+          onClose={() => setSelectedSegmentId(null)}
+        />
+      )}
     </div>
   );
 }

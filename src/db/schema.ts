@@ -56,6 +56,15 @@ export const flagResolutionEnum = pgEnum("flag_resolution", [
   "dismissed",
 ]);
 
+// DATA_MODEL.md decay half-life varies by tag kind: standard (45d),
+// static lighting-infrastructure reports (180d), and Phase 2's "lit
+// tonight" real-time reports (1d, expire by morning).
+export const tagKindEnum = pgEnum("tag_kind", [
+  "standard",
+  "infrastructure",
+  "lit_tonight",
+]);
+
 // Per DATA_MODEL.md — tag at the street-segment level (an OSM way, or a
 // sub-split of one), seeded from OSM ways in the launch bbox.
 export const segments = pgTable("segments", {
@@ -68,6 +77,15 @@ export const segments = pgTable("segments", {
   nightScore: scoreBandEnum("night_score").notNull().default("unrated"),
   tagCount: integer("tag_count").notNull().default(0),
   lastTaggedAt: timestamp("last_tagged_at", { withTimezone: true }),
+
+  // DATA_MODEL.md status-flip rule: "a segment's band only changes when
+  // the new aggregate has been stable across >=2 recalculation cycles
+  // (e.g. 48 hours apart)". These track a computed-but-not-yet-committed
+  // band per bucket until it holds for the stability window.
+  pendingDayScore: scoreBandEnum("pending_day_score"),
+  pendingDayScoreSince: timestamp("pending_day_score_since", { withTimezone: true }),
+  pendingNightScore: scoreBandEnum("pending_night_score"),
+  pendingNightScoreSince: timestamp("pending_night_score_since", { withTimezone: true }),
 });
 
 // Contributor is optional — anonymous-by-default (see DO_NOT.md: no handle
@@ -78,6 +96,13 @@ export const contributors = pgTable("contributors", {
   joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
   tagCount: integer("tag_count").notNull().default(0),
   trustScore: real("trust_score").notNull().default(0),
+
+  // Phase 2 (MVP_SCOPE.md): streaks/badges belong to the contribution
+  // flow only — DO_NOT.md: never gamify someone else's reported danger.
+  currentStreakDays: integer("current_streak_days").notNull().default(0),
+  longestStreakDays: integer("longest_streak_days").notNull().default(0),
+  lastContributionAt: timestamp("last_contribution_at", { withTimezone: true }),
+  badges: text("badges").array().notNull().default([]),
 });
 
 export const tags = pgTable("tags", {
@@ -86,15 +111,28 @@ export const tags = pgTable("tags", {
     .notNull()
     .references(() => segments.id),
   contributorId: uuid("contributor_id").references(() => contributors.id),
+  // Opaque client-generated token (src/lib/device-id.ts) — used for rate
+  // limiting and duplicate-burst detection only. Never a real identifier
+  // (DO_NOT.md: no handle derivable from a real name/phone/account).
+  deviceId: text("device_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   timeOfDay: timeOfDayEnum("time_of_day").notNull(),
   lighting: lightingEnum("lighting").notNull(),
   safetyFeeling: safetyFeelingEnum("safety_feeling").notNull(),
   category: tagCategoryEnum("category"),
   note: text("note"), // max ~280 chars, enforced at the API boundary
+  kind: tagKindEnum("kind").notNull().default("standard"),
+  // Base multiplier before time-decay (e.g. lowered for a low-trust
+  // contributor); the exp(-days/half_life) decay factor itself is
+  // computed live at aggregation time in src/lib/scoring.ts, never
+  // stored, so it can't go stale.
   weight: real("weight").notNull().default(1),
   flaggedCount: integer("flagged_count").notNull().default(0),
   status: tagStatusEnum("status").notNull().default("active"),
+
+  // Phase 2 (MVP_SCOPE.md): partner-seed bulk import, "tagged with a
+  // seed_source field distinct from organic tags".
+  seedSource: text("seed_source"),
 });
 
 export const moderationFlags = pgTable("moderation_flags", {
@@ -106,4 +144,15 @@ export const moderationFlags = pgTable("moderation_flags", {
   reason: flagReasonEnum("reason").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   resolution: flagResolutionEnum("resolution").notNull().default("pending"),
+});
+
+// Phase 3 (MVP_SCOPE.md): "B2B/B2G data export for partners (aggregated,
+// de-identified only)". A key gates access to the aggregated export
+// endpoint — never the raw tags/tag table.
+export const partnerApiKeys = pgTable("partner_api_keys", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  partnerName: text("partner_name").notNull(),
+  hashedKey: text("hashed_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
