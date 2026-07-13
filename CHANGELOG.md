@@ -2,6 +2,16 @@
 
 All notable changes to Lantern are logged here, including the reasoning behind decisions the project docs (`PROJECT.md`, `DO_NOT.md`, `PRD.md`, `DATA_MODEL.md`, `ARCHITECTURE.md`, `DESIGN_SYSTEM.md`, `MVP_SCOPE.md`) left ambiguous. Update this file alongside `ROADMAP.md` whenever a phase status changes or a new judgment call gets made.
 
+## 2026-07-14
+
+### `/audit-project` multi-agent review
+
+8 parallel review passes (code-quality, security, performance, test-coverage, architecture, database, api, frontend) against the full repo. 88 findings: 5 critical, 25 high, 30 medium, 28 low. Fixed everything with a clear, well-scoped remediation; deferred the ones requiring real design/scope decisions rather than silently taking them on. Full list of what was fixed is in the commit message ("Fix critical/high findings from /audit-project multi-agent review"); see `ROADMAP.md`'s new "Known issues from audit" section for what's still open.
+
+Two bugs stand out as the kind that would only surface in production, not in review-by-reading:
+- **CRON_SECRET fail-open**: an unset env var made the auth check compare against the literal string `"Bearer undefined"`, so sending that exact header bypassed cron auth entirely. This is the second time this session an unset/misconfigured env var produced a silent security gap rather than a startup failure — worth treating as a pattern (audit *every* secret-comparison for a missing-value guard, not just the ones flagged).
+- **Cache key precision**: the Redis segment cache was keyed on the raw, full-precision client bbox, so nearly every map pan produced a distinct key and the cache — built specifically to absorb repeated pans — had a near-zero real hit rate. Nothing was wrong with the caching *logic*, only the key's granularity; a good reminder that a cache with a 0% hit rate looks identical to a working cache in every test except a real one.
+
 ## 2026-07-13
 
 ### Infrastructure provisioned and live-tested

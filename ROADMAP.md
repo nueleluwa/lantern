@@ -59,6 +59,19 @@ These were genuine gaps in the docs, resolved with a judgment call rather than b
 - `CRON_SECRET` / `ADMIN_SECRET` generated and set locally in `.env` (not committed).
 - Not yet done: Vercel project/deployment. Everything above has only been run against a local dev server pointed at the live Supabase/Upstash instances.
 
+## Known issues from `/audit-project` (2026-07-14)
+
+88 findings from an 8-pass multi-agent review; critical/high items with a clear fix are already applied (see CHANGELOG.md and the "Fix critical/high findings" commit). Deferred, in priority order:
+
+- **No test suite** (critical) — vitest is configured, zero test files exist. Highest-priority modules to cover first: `src/lib/scoring.ts` (the stability-window/banding logic DO_NOT.md cares most about), `src/lib/routing.ts`, `src/lib/contributor-progress.ts`.
+- **MapView.tsx is doing too much** — 233 lines, 6 co-located effects, five loosely related pieces of state. Needs splitting into `useSegments`/`useSegmentSelection`/`useRoutePicking` hooks.
+- **Map interaction is mouse/touch-only** — segment selection is a MapLibre canvas click with no keyboard/screen-reader path at all (canvas isn't in the accessibility tree). Needs a parallel DOM-based path (e.g. a focusable segment list) for the core tagging flow to be keyboard-reachable.
+- **Live-share session id is both identifier and credential** — anyone with the share link can overwrite the walker's position or end the session, not just view it. Needs separate owner/viewer tokens (API contract change).
+- **TagSheet's dialog has no focus trap / Escape-to-close / focus-on-open** — `role="dialog"` without the behavior to back it up.
+- API inconsistencies not yet addressed: no shared error envelope across routes, no pagination on `/api/segments` or the moderation queue, no API versioning on the partner export endpoint, admin/partner auth has no rate limiting or lockout.
+- `recalculateAllSegments`'s N+1 query pattern (self-documented, "fine at Phase 1 scale") is a real cron-timeout risk once segment count grows — batching into set-based SQL is the real fix, not just bounded concurrency.
+- Full findings list (30 medium, 28 low not detailed here) lived in a review-queue JSON in `.claude/` during the session — not committed (gitignored, local tooling state); re-run `/audit-project` to regenerate if needed.
+
 ## Before this can actually launch
 
 1. Pick and name the real launch neighborhood (the seeded bbox sits on real Port Harcourt streets already, but was never deliberately chosen — still says `"TODO: name the launch neighborhood"`).
@@ -66,3 +79,4 @@ These were genuine gaps in the docs, resolved with a judgment call rather than b
 3. Decide real moderator identity/roles and replace the shared-secret gate.
 4. Deploy to Vercel and confirm the cron job actually fires on schedule against the live project.
 5. Live-test live-share and B2B export against the now-live Redis/Supabase (built, never exercised).
+6. Work through the audit findings above, starting with the test suite and the keyboard-accessibility gap.
