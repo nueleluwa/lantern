@@ -6,18 +6,39 @@
 -- pgRouting ships as a Supabase-supported extension but isn't always
 -- pre-enabled — toggle it on in Database > Extensions if this fails, or
 -- run as the postgres role.
+--
+-- CORRECTED 2026-07-13: the first version of this script ran
+-- pgr_createTopology directly on the raw `segments` table, which only
+-- snaps a way's declared start/end points to other ways' start/end
+-- points. Real OSM ways routinely pass straight *through* an
+-- intersection without being split there (a through-street continues
+-- past a T-junction as one continuous way), so a crossing street's
+-- endpoint lands in the middle of that line, not at a shared vertex.
+-- Live-tested against 1171 real Port Harcourt segments: this produced
+-- 667 disconnected components, 513 of them a single isolated edge
+-- (confirmed 1160/1171 segments geometrically cross another line
+-- somewhere that isn't a declared endpoint). pgr_nodeNetwork() is
+-- pgRouting's purpose-built fix — it splits edges at every actual
+-- intersection point first, into a new `segments_noded` table, which
+-- is what topology and routing must run against instead.
 
 create extension if not exists pgrouting;
 
--- pgr_createTopology needs bigint source/target columns on the edge
--- table plus a bigint-ish "id" it can key internally; our primary key is
--- uuid; routing_id is a parallel bigserial used only for pgRouting calls.
 alter table segments add column if not exists routing_id bigserial;
-alter table segments add column if not exists source bigint;
-alter table segments add column if not exists target bigint;
-
 create index if not exists segments_routing_id_idx on segments (routing_id);
 
--- Snaps segment endpoints within ~1m (0.00001 deg) into shared routing
--- nodes so pgr_dijkstra can traverse between adjacent segments.
-select pgr_createTopology('segments', 0.00001, 'geometry', 'routing_id');
+-- Drop the no-longer-used direct source/target from segments — the
+-- routable graph now lives in segments_noded (below), joined back to
+-- segments via old_id = routing_id for cost lookups and to resolve
+-- which tagged street a routed sub-edge belongs to.
+alter table segments drop column if exists source;
+alter table segments drop column if exists target;
+
+drop table if exists segments_noded;
+select pgr_nodeNetwork('segments', 0.00001, 'routing_id', 'geometry');
+
+alter table segments_noded add column if not exists source bigint;
+alter table segments_noded add column if not exists target bigint;
+create index if not exists segments_noded_old_id_idx on segments_noded (old_id);
+
+select pgr_createTopology('segments_noded', 0.00001, 'geometry', 'id');

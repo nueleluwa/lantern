@@ -30,7 +30,7 @@ Status of each MVP_SCOPE.md phase, kept in sync with what's actually in the repo
 
 | Item | Status |
 | --- | --- |
-| Route suggestion (prefers higher-scored segments, not a strict router) | Built and **live-verified end-to-end** against the real Supabase+pgRouting project — returns real multi-segment paths with correct geometry/cost. Found and fixed 3 real bugs in the process (ambiguous `pgr_dijkstra` overload, unreliable raw-SQL array binding, bigint-as-string sentinel comparison) — see `CHANGELOG.md`. Routing graph is still fragmented into multiple disconnected components (largest tested: 82 nodes) rather than one connected network; not yet root-caused past the highway-filter fix |
+| Route suggestion (prefers higher-scored segments, not a strict router) | Built and **live-verified end-to-end**, including a properly connected routing graph (root-caused and fixed the fragmentation — see `CHANGELOG.md`: raw OSM ways pass through unsplit intersections, needed `pgr_nodeNetwork()` to split edges at real crossing points before building topology). Largest connected component now covers 1853/1946 nodes (95%), up from 82/1806 (~5%) before the fix. |
 | Live share / walk-with-me | Built — Redis-only, ephemeral. **Not yet live-tested** (Upstash was provisioned after this was last checked) |
 | B2B/B2G aggregated data export | Built, API-key gated. **Not yet live-tested** |
 | Expansion beyond launch geography | Config supports multiple areas; only one is populated |
@@ -40,7 +40,7 @@ Status of each MVP_SCOPE.md phase, kept in sync with what's actually in the repo
 - **Who moderates?** PRD.md never answers this (Lantern staff vs. a delegated community lead like the Chidinma persona). `/moderation` currently uses a single shared `ADMIN_SECRET` — fine for one operator, wrong for a team. Revisit before onboarding more than one moderator.
 - **Real launch neighborhood bbox.** `src/config/launch-area.ts` has placeholder coordinates. Needs the actual Port Harcourt neighborhood/campus decided in `PROJECT.md`'s "Geography for launch."
 - **Authored map style.** Now plain OpenStreetMap raster tiles (real data, but unstyled). `DESIGN_SYSTEM.md` requires a real dark vector style (self-hosted OpenMapTiles + Maputnik, or a reskinned open dark base).
-- **Routing graph connectivity.** Live-tested and working, but the graph is fragmented into many disconnected components rather than one network even after broadening the highway filter to include primary/trunk roads. Needs further investigation (topology snapping tolerance? missing way types? genuine gaps in OSM coverage for this bbox?) before routing can be trusted city-wide rather than just within whichever component the two query points happen to share.
+- ~~**Routing graph connectivity.**~~ Resolved — see CHANGELOG.md. Root cause was pgr_createTopology running on un-split OSM ways; fixed with pgr_nodeNetwork(). 21 components remain (down from 667), the largest covering 95% of nodes — the rest are most likely genuine dead-ends/cul-de-sacs or real OSM coverage gaps at the bbox edge, not a code bug, but not re-verified in detail.
 
 ## Decisions made without an explicit spec answer (logged for review)
 
@@ -63,6 +63,6 @@ These were genuine gaps in the docs, resolved with a judgment call rather than b
 
 1. Pick and name the real launch neighborhood (the seeded bbox sits on real Port Harcourt streets already, but was never deliberately chosen — still says `"TODO: name the launch neighborhood"`).
 2. Author the real dark map style per `DESIGN_SYSTEM.md` (currently plain OSM raster tiles).
-3. Root-cause the routing graph fragmentation (see Open Questions above) before trusting routing beyond ad hoc same-component testing.
-4. Decide real moderator identity/roles and replace the shared-secret gate.
-5. Deploy to Vercel and confirm the cron job actually fires on schedule against the live project.
+3. Decide real moderator identity/roles and replace the shared-secret gate.
+4. Deploy to Vercel and confirm the cron job actually fires on schedule against the live project.
+5. Live-test live-share and B2B export against the now-live Redis/Supabase (built, never exercised).

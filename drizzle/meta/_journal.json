@@ -8,6 +8,13 @@
       "when": 1783974901343,
       "tag": "0000_big_otto_octavius",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783980581134,
+      "tag": "0001_broken_bloodstrike",
+      "breakpoints": true
     }
   ]
 }

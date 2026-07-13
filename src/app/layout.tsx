@@ -18,7 +18,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      {/* suppressHydrationWarning: browser extensions (e.g. Grammarly)
+          inject attributes like data-gr-ext-installed onto <body> before
+          React hydrates — a false-positive mismatch, not a real bug. */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

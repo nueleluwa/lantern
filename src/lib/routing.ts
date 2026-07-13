@@ -1,6 +1,5 @@
-import { inArray, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { db } from "./db";
-import { segments } from "@/db/schema";
 import { ROUTE_DISCLAIMER } from "./route-disclaimer";
 
 export { ROUTE_DISCLAIMER };
@@ -34,10 +33,17 @@ export type RouteResult = {
   disclaimer: string;
 };
 
+// Routing graph lives in segments_noded (scripts/002_enable_pgrouting_topology.sql),
+// not the raw segments table — see that script's 2026-07-13 correction
+// note for why: OSM ways pass through unsplit intersections, so a plain
+// source/target pair on un-split geometry misses most real connections.
+// segments_noded.old_id joins back to segments.routing_id to look up
+// each sub-edge's band (for cost) and original segment uuid (for output).
+
 async function nearestNodeId(lng: number, lat: number): Promise<number | null> {
   const result = await db.execute<{ id: number }>(sql`
     select id
-    from segments_vertices_pgr
+    from segments_noded_vertices_pgr
     order by the_geom <-> ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)
     limit 1
   `);
@@ -55,24 +61,25 @@ export async function findSuggestedRoute(
   const endId = await nearestNodeId(to[0], to[1]);
   if (startId === null || endId === null || startId === endId) return null;
 
-  // Cost = segment length (degrees) * band multiplier — length keeps
-  // the router from preferring absurdly long "safe" detours by an
-  // unbounded amount; the multiplier is the actual safety preference.
+  // Cost = this sub-edge's own length (not the whole original street's
+  // length, since pgr_nodeNetwork may have split it) * band multiplier
+  // looked up from the original segment it belongs to.
   const edgeSql = `
     select
-      routing_id as id,
-      source,
-      target,
-      ST_Length(geometry) * (
-        case ${scoreColumn}
+      n.id as id,
+      n.source,
+      n.target,
+      ST_Length(n.geometry) * (
+        case s.${scoreColumn}
           when 'lit_safe' then ${BAND_COST_MULTIPLIER.lit_safe}
           when 'caution' then ${BAND_COST_MULTIPLIER.caution}
           when 'avoid' then ${BAND_COST_MULTIPLIER.avoid}
           else ${BAND_COST_MULTIPLIER.unrated}
         end
       ) as cost
-    from segments
-    where source is not null and target is not null
+    from segments_noded n
+    join segments s on s.routing_id = n.old_id
+    where n.source is not null and n.target is not null
   `;
 
   const pathRows = await db.execute<{
@@ -94,25 +101,27 @@ export async function findSuggestedRoute(
   const edgeIds = pathRows.map((r) => Number(r.edge)).filter((e) => e !== -1);
   if (edgeIds.length === 0) return null;
 
-  const segmentRows = await db
-    .select({
-      id: segments.id,
-      routingId: segments.routingId,
-      geojson: sql<string>`ST_AsGeoJSON(${segments.geometry})`,
-    })
-    .from(segments)
-    .where(inArray(segments.routingId, edgeIds));
+  const subEdgeRows = await db.execute<{ id: number; segment_id: string; geojson: string }>(sql`
+    select n.id, s.id as segment_id, ST_AsGeoJSON(n.geometry) as geojson
+    from segments_noded n
+    join segments s on s.routing_id = n.old_id
+    where n.id = any(array[${sql.join(edgeIds.map((id) => sql`${id}::bigint`), sql`, `)}])
+  `);
 
   // Preserve pgr_dijkstra's traversal order, not the arbitrary SQL
   // return order.
-  const byRoutingId = new Map(segmentRows.map((r) => [r.routingId, r]));
+  const byNodedId = new Map(subEdgeRows.map((r) => [Number(r.id), r]));
   const orderedCoordinates: [number, number][] = [];
   const orderedSegmentIds: string[] = [];
 
   for (const edgeId of edgeIds) {
-    const row = byRoutingId.get(edgeId);
+    const row = byNodedId.get(edgeId);
     if (!row) continue;
-    orderedSegmentIds.push(row.id);
+    // A single tagged street may be split into several sub-edges — only
+    // record its id once, in order of first traversal.
+    if (orderedSegmentIds[orderedSegmentIds.length - 1] !== row.segment_id) {
+      orderedSegmentIds.push(row.segment_id);
+    }
     const geom = JSON.parse(row.geojson) as GeoJSON.LineString;
     orderedCoordinates.push(...(geom.coordinates as [number, number][]));
   }

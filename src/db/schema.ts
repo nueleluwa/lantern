@@ -4,7 +4,6 @@ import {
   text,
   integer,
   real,
-  bigint,
   bigserial,
   timestamp,
   pgEnum,
@@ -89,12 +88,14 @@ export const segments = pgTable("segments", {
   pendingNightScore: scoreBandEnum("pending_night_score"),
   pendingNightScoreSince: timestamp("pending_night_score_since", { withTimezone: true }),
 
-  // Phase 3 pgRouting topology (scripts/002_enable_pgrouting_topology.sql)
-  // — bigint id/source/target pgr_createTopology needs alongside the
-  // uuid primary key used everywhere else in the app.
+  // Phase 3 pgRouting: stable bigint join key referenced by
+  // segments_noded.old_id (scripts/002_enable_pgrouting_topology.sql).
+  // The actual routable graph (source/target/topology) lives in the
+  // separate segments_noded table, not here — pgr_nodeNetwork splits
+  // ways at real intersection points, which a plain source/target pair
+  // on the original un-split geometry can't represent (see the 2026-07-13
+  // correction note in that script for why).
   routingId: bigserial("routing_id", { mode: "number" }),
-  source: bigint("source", { mode: "number" }),
-  target: bigint("target", { mode: "number" }),
 });
 
 // Contributor is optional — anonymous-by-default (see DO_NOT.md: no handle
