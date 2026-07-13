@@ -4,6 +4,8 @@ import {
   text,
   integer,
   real,
+  bigint,
+  bigserial,
   timestamp,
   pgEnum,
   customType,
@@ -86,6 +88,13 @@ export const segments = pgTable("segments", {
   pendingDayScoreSince: timestamp("pending_day_score_since", { withTimezone: true }),
   pendingNightScore: scoreBandEnum("pending_night_score"),
   pendingNightScoreSince: timestamp("pending_night_score_since", { withTimezone: true }),
+
+  // Phase 3 pgRouting topology (scripts/002_enable_pgrouting_topology.sql)
+  // — bigint id/source/target pgr_createTopology needs alongside the
+  // uuid primary key used everywhere else in the app.
+  routingId: bigserial("routing_id", { mode: "number" }),
+  source: bigint("source", { mode: "number" }),
+  target: bigint("target", { mode: "number" }),
 });
 
 // Contributor is optional — anonymous-by-default (see DO_NOT.md: no handle
