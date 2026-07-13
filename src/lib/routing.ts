@@ -1,5 +1,6 @@
-import { sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { db } from "./db";
+import { segments } from "@/db/schema";
 import { ROUTE_DISCLAIMER } from "./route-disclaimer";
 
 export { ROUTE_DISCLAIMER };
@@ -81,23 +82,30 @@ export async function findSuggestedRoute(
     cost: number;
     agg_cost: number;
   }>(sql`
-    select * from pgr_dijkstra(${edgeSql}, ${startId}, ${endId}, directed => false)
+    select * from pgr_dijkstra(${edgeSql}::text, ${startId}::bigint, ${endId}::bigint, directed => false)
   `);
 
   if (pathRows.length === 0) return null;
 
-  const edgeIds = pathRows.map((r) => r.edge).filter((e) => e !== -1);
+  // pgr_dijkstra's bigint columns (node/edge/agg_cost) come back as
+  // strings from the driver, not numbers, to avoid precision loss for
+  // values beyond JS's safe integer range — comparing/filtering against
+  // a numeric literal silently never matches unless explicitly coerced.
+  const edgeIds = pathRows.map((r) => Number(r.edge)).filter((e) => e !== -1);
   if (edgeIds.length === 0) return null;
 
-  const segmentRows = await db.execute<{ id: string; routing_id: number; geojson: string }>(sql`
-    select id, routing_id, ST_AsGeoJSON(geometry) as geojson
-    from segments
-    where routing_id = any(${edgeIds})
-  `);
+  const segmentRows = await db
+    .select({
+      id: segments.id,
+      routingId: segments.routingId,
+      geojson: sql<string>`ST_AsGeoJSON(${segments.geometry})`,
+    })
+    .from(segments)
+    .where(inArray(segments.routingId, edgeIds));
 
   // Preserve pgr_dijkstra's traversal order, not the arbitrary SQL
   // return order.
-  const byRoutingId = new Map(segmentRows.map((r) => [r.routing_id, r]));
+  const byRoutingId = new Map(segmentRows.map((r) => [r.routingId, r]));
   const orderedCoordinates: [number, number][] = [];
   const orderedSegmentIds: string[] = [];
 

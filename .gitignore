@@ -14,3 +14,7 @@ npm-debug.log*
 Thumbs.db
 
 *.tsbuildinfo
+
+# Local tooling state, not project source
+.claude/
+supabase/.temp/

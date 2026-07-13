@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "./db";
 import { contributors } from "@/db/schema";
 
@@ -70,5 +70,5 @@ export async function bumpTrustForCorroboratedContributors(contributorIds: strin
   await db
     .update(contributors)
     .set({ trustScore: sql`${contributors.trustScore} + 0.1` })
-    .where(sql`${contributors.id} = ANY(${contributorIds})`);
+    .where(inArray(contributors.id, contributorIds));
 }

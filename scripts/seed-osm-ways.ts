@@ -11,10 +11,23 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "../src/db/schema";
 import { DEFAULT_LAUNCH_AREA } from "../src/config/launch-area";
 
-const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+// The main overpass-api.de endpoint was intermittently returning 406s
+// (public shared resource, no SLA) when this was first run — configurable
+// so a different mirror can be swapped in without editing code.
+// Known mirrors: https://overpass-api.de/api/interpreter,
+// https://overpass.kumi.systems/api/interpreter,
+// https://overpass.openstreetmap.fr/api/interpreter
+const OVERPASS_URL = process.env.OVERPASS_URL ?? "https://overpass.openstreetmap.fr/api/interpreter";
 
-// Pedestrian-relevant way types only — this is a walking-safety map, not a
-// general road map.
+// Pedestrian-relevant way types — excludes motorway/motorway_link (no
+// pedestrian access at all) and service roads (driveways/parking lots,
+// not through-routes). Originally excluded primary/trunk too, but
+// testing against real Port Harcourt OSM data showed that leaves out
+// the actual arterial connector roads between neighborhoods — without
+// them the routing graph fragments into hundreds of disconnected
+// islands of ~10-30 nodes each instead of one connected network. People
+// also just do walk along/cross these roads in practice, so including
+// them is correct for a walking-safety map, not just a routing fix.
 const WALKABLE_HIGHWAY_VALUES = [
   "residential",
   "living_street",
@@ -23,7 +36,13 @@ const WALKABLE_HIGHWAY_VALUES = [
   "path",
   "unclassified",
   "tertiary",
+  "tertiary_link",
   "secondary",
+  "secondary_link",
+  "primary",
+  "primary_link",
+  "trunk",
+  "trunk_link",
 ];
 
 type OverpassElement = {
@@ -43,8 +62,13 @@ async function fetchWaysInBbox(bbox: [number, number, number, number]) {
     out geom;
   `;
 
+  // OSM's Overpass usage policy asks for a descriptive User-Agent
+  // identifying the application/contact — some mirrors (observed:
+  // overpass.openstreetmap.fr) reject Node's default fetch UA with a 403
+  // even though the same query works fine via curl.
   const res = await fetch(OVERPASS_URL, {
     method: "POST",
+    headers: { "User-Agent": "Lantern/0.1 (safe-route mapper, Port Harcourt)" },
     body: new URLSearchParams({ data: query }),
   });
 
