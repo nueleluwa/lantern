@@ -1,0 +1,55 @@
+/* DESIGN_SYSTEM.md — Color palette, type scale, spacing rhythm.
+   Segment band colors (safe/caution/avoid) are reserved for map/tag
+   states only — never reused decoratively elsewhere. */
+
+:root {
+  /* Color */
+  --night-950: #10132b;
+  --night-800: #1c2148;
+  --lamp-500: #f5a524;
+  --lamp-300: #ffd08a;
+  --safe-500: #4ade80;
+  --caution-500: #e8590c;
+  --avoid-500: #e11d48;
+  --mist-100: #edeffb;
+  --mist-400: #9aa0c4;
+  --day-050: #f6f5fa;
+  --day-900: #181b34;
+
+  /* Type scale */
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --font-data: "JetBrains Mono", monospace;
+
+  --text-display-xl: 32px;
+  --text-display: 24px;
+  --text-body-lg: 18px;
+  --text-body: 16px;
+  --text-label: 14px;
+  --text-data: 12px;
+
+  /* Spacing rhythm — 8px base, scaling to 16/24/32/48 for sections */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-6: 48px;
+
+  /* Component constants */
+  --radius-button: 16px;
+  --button-height-primary: 56px;
+  --focus-ring: 3px solid var(--lamp-300);
+  --focus-ring-offset: 2px;
+}
+
+/* Day mode: app chrome only — segment band colors and line encoding
+   never change between modes (DESIGN_SYSTEM.md "Day mode"). */
+[data-theme="day"] {
+  --chrome-bg: var(--day-050);
+  --chrome-text: var(--day-900);
+}
+
+[data-theme="night"] {
+  --chrome-bg: var(--night-950);
+  --chrome-text: var(--mist-100);
+}
