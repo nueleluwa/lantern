@@ -10,11 +10,15 @@ import { useEffect, useRef, useState } from "react";
 const UPDATE_INTERVAL_MS = 15_000;
 
 export function LiveShareControl() {
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastPositionRef = useRef<{ lng: number; lat: number } | null>(null);
+  // A ref, not state — the unmount cleanup's stop() closure would
+  // otherwise only ever see the value from the initial render (null),
+  // so the server-side session was never explicitly ended on
+  // navigate-away mid-share. Found by audit-project review.
+  const sessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -28,7 +32,7 @@ export function LiveShareControl() {
 
     const res = await fetch("/api/live-share", { method: "POST" });
     const { id } = await res.json();
-    setSessionId(id);
+    sessionIdRef.current = id;
     setShareUrl(`${window.location.origin}/share/${id}`);
 
     watchIdRef.current = navigator.geolocation.watchPosition(
@@ -52,8 +56,8 @@ export function LiveShareControl() {
   async function stop() {
     if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
     if (intervalRef.current) clearInterval(intervalRef.current);
-    if (sessionId) await fetch(`/api/live-share/${sessionId}`, { method: "DELETE" });
-    setSessionId(null);
+    if (sessionIdRef.current) await fetch(`/api/live-share/${sessionIdRef.current}`, { method: "DELETE" });
+    sessionIdRef.current = null;
     setShareUrl(null);
   }
 
@@ -86,8 +90,8 @@ export function LiveShareControl() {
           type="button"
           onClick={stop}
           style={{
-            height: 48,
-            borderRadius: 8,
+            height: "var(--button-height-primary)",
+            borderRadius: "var(--radius-button)",
             border: "none",
             background: "var(--avoid-500)",
             color: "var(--mist-100)",
@@ -104,9 +108,9 @@ export function LiveShareControl() {
       type="button"
       onClick={start}
       style={{
-        height: 48,
+        height: "var(--button-height-primary)",
         padding: "0 var(--space-2)",
-        borderRadius: 8,
+        borderRadius: "var(--radius-button)",
         border: "none",
         background: "var(--night-800)",
         color: "var(--mist-100)",

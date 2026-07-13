@@ -1,3 +1,4 @@
+import "server-only";
 import { cookies } from "next/headers";
 
 // PROJECT.md: "anonymous-by-default, optional account for contribution

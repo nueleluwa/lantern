@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { FlagIcon } from "@heroicons/react/24/solid";
+import { getOrCreateDeviceId } from "@/lib/device-id";
 
 const REASONS = [
   { value: "inaccurate", label: "Inaccurate" },
@@ -19,7 +20,10 @@ export function FlagButton({ tagId }: { tagId: string }) {
   async function submitFlag(reason: (typeof REASONS)[number]["value"]) {
     await fetch(`/api/tags/${tagId}/flag`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Device-Id": getOrCreateDeviceId(),
+      },
       body: JSON.stringify({ reason }),
     });
     setSent(true);

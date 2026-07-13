@@ -1,3 +1,4 @@
+import "server-only";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "./db";
 import { segments, tags } from "@/db/schema";

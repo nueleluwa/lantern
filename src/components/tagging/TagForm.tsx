@@ -9,6 +9,7 @@ import {
   NoSymbolIcon,
 } from "@heroicons/react/24/solid";
 import { enqueueTag, drainTagQueue } from "@/lib/tag-queue";
+import { getCurrentTimeOfDay } from "@/lib/time-of-day";
 
 type Lighting = "lit" | "dim" | "dark";
 type SafetyFeeling = "safe" | "caution" | "avoid";
@@ -65,10 +66,9 @@ export function TagForm({
     if (!lighting || !safetyFeeling) return;
     setState("submitting");
 
-    const hour = new Date().getHours();
-    const timeOfDay = hour >= 6 && hour < 18 ? "day" : hour >= 18 && hour < 21 ? "evening" : "night";
+    const timeOfDay = getCurrentTimeOfDay();
 
-    enqueueTag(segmentId, {
+    const entry = enqueueTag(segmentId, {
       timeOfDay,
       lighting,
       safetyFeeling,
@@ -76,20 +76,25 @@ export function TagForm({
       note: note.trim() || null,
     });
 
+    // Check this specific entry's outcome, not the whole queue's —
+    // audit-project review found the previous version could misattribute
+    // an unrelated older queued entry's expiry/success to this
+    // submission (e.g. drainTagQueue expiring a stale 24h+ entry from a
+    // prior offline session while this submission is still queued, not
+    // failed, would have shown a hard error here).
     const { succeeded, expired } = await drainTagQueue();
-    if (expired.length > 0 && succeeded.length === 0) {
-      setState("error");
-      return;
-    }
-    if (succeeded.length === 0) {
-      // Still queued — likely offline. Not an error; DESIGN_SYSTEM.md:
-      // never fail silently or block the user.
-      setState("queued-offline");
+    if (succeeded.includes(entry.localId)) {
+      setState("success");
       onSubmitted?.();
       return;
     }
-
-    setState("success");
+    if (expired.includes(entry.localId)) {
+      setState("error");
+      return;
+    }
+    // Still queued — likely offline. Not an error; DESIGN_SYSTEM.md:
+    // never fail silently or block the user.
+    setState("queued-offline");
     onSubmitted?.();
   }
 

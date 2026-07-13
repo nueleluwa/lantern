@@ -1,3 +1,4 @@
+import "server-only";
 import { createHash } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "./db";

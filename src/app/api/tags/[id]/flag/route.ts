@@ -3,10 +3,11 @@ import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { tags, moderationFlags } from "@/db/schema";
+import { checkAndIncrementFlagRateLimit } from "@/lib/rate-limit";
+import { getContributorIdFromCookie } from "@/lib/contributor-session";
 
 const bodySchema = z.object({
   reason: z.enum(["inaccurate", "spam", "hate_or_profiling", "duplicate"]),
-  flaggedBy: z.string().uuid().nullable().optional(),
 });
 
 // Flow D (PRD.md): "Any tag can be flagged by other users." Flagging
@@ -19,6 +20,19 @@ export async function POST(
 ) {
   const { id: tagId } = await params;
 
+  const deviceId = request.headers.get("x-device-id");
+  if (!deviceId) {
+    return NextResponse.json({ error: "Missing X-Device-Id header" }, { status: 400 });
+  }
+
+  const rateLimit = await checkAndIncrementFlagRateLimit(deviceId);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded — try again later" },
+      { status: 429 }
+    );
+  }
+
   const parsed = bodySchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -29,11 +43,17 @@ export async function POST(
     return NextResponse.json({ error: "Tag not found" }, { status: 404 });
   }
 
+  // Identity is derived server-side from the session cookie, never taken
+  // from the request body — audit-project review found the previous
+  // client-supplied flaggedBy field let anyone attribute a flag to any
+  // other contributor's real UUID.
+  const flaggedBy = await getContributorIdFromCookie();
+
   const [flag] = await db
     .insert(moderationFlags)
     .values({
       tagId,
-      flaggedBy: parsed.data.flaggedBy ?? null,
+      flaggedBy,
       reason: parsed.data.reason,
     })
     .returning();

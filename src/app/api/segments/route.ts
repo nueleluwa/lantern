@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -9,6 +10,21 @@ import {
   recordSegmentInCacheKey,
   SEGMENT_CACHE_TTL_SECONDS,
 } from "@/lib/redis";
+
+// ~0.01deg ~= 1.1km at this latitude — coarse enough that nearby pans at
+// the same zoom collapse onto the same cache key, fine enough that a
+// single grid cell isn't so large the cached response bloats.
+const CACHE_GRID_DEGREES = 0.01;
+
+function snapBboxToGrid(bbox: [number, number, number, number]): [number, number, number, number] {
+  const [minLng, minLat, maxLng, maxLat] = bbox;
+  return [
+    Math.floor(minLng / CACHE_GRID_DEGREES) * CACHE_GRID_DEGREES,
+    Math.floor(minLat / CACHE_GRID_DEGREES) * CACHE_GRID_DEGREES,
+    Math.ceil(maxLng / CACHE_GRID_DEGREES) * CACHE_GRID_DEGREES,
+    Math.ceil(maxLat / CACHE_GRID_DEGREES) * CACHE_GRID_DEGREES,
+  ];
+}
 
 const querySchema = z.object({
   bbox: z
@@ -33,9 +49,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const { bbox, time_of_day, zoom } = parsed.data;
-  const [minLng, minLat, maxLng, maxLat] = bbox;
+  // Snap to a coarse grid (outward, so the queried area always fully
+  // covers what the client asked for) before building the cache key —
+  // audit-project review found that using the raw, full-precision
+  // client bbox meant nearly every map pan produced a distinct cache
+  // key, giving the Redis cache (built specifically to absorb repeated
+  // pans per ARCHITECTURE.md §2) a near-zero real-world hit rate.
+  const [minLng, minLat, maxLng, maxLat] = snapBboxToGrid(bbox);
 
-  const cacheKey = segmentsCacheKey({ bbox: bbox.join(","), zoom, timeOfDay: time_of_day });
+  const cacheKey = segmentsCacheKey({
+    bbox: [minLng, minLat, maxLng, maxLat].join(","),
+    zoom,
+    timeOfDay: time_of_day,
+  });
   const cached = await redis.get<GeoJSON.FeatureCollection>(cacheKey);
   if (cached) {
     return NextResponse.json(cached);
@@ -72,8 +98,15 @@ export async function GET(request: NextRequest) {
     })),
   };
 
-  await redis.set(cacheKey, featureCollection, { ex: SEGMENT_CACHE_TTL_SECONDS });
-  await Promise.all(rows.map((row) => recordSegmentInCacheKey(row.id, cacheKey)));
+  // Cache write-through and the reverse-index bookkeeping have no
+  // bearing on the response body — deferred to after() so they don't
+  // sit on the hot path (audit-project review: this was previously
+  // awaited before responding, blocking on 2N Redis round trips for N
+  // segments in the viewport).
+  after(async () => {
+    await redis.set(cacheKey, featureCollection, { ex: SEGMENT_CACHE_TTL_SECONDS });
+    await Promise.all(rows.map((row) => recordSegmentInCacheKey(row.id, cacheKey)));
+  });
 
   return NextResponse.json(featureCollection);
 }

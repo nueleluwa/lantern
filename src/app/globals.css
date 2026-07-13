@@ -20,6 +20,20 @@ body {
   color: var(--chrome-text);
 }
 
+/* DESIGN_SYSTEM.md Interaction states: 3px solid lamp-300 ring, 2px
+   offset, on every interactive element — "never remove focus rings for
+   aesthetics." tokens.css defines the variables; audit-project review
+   found nothing actually applied them. */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
 .spinner {
   width: 32px;
   height: 32px;

@@ -95,20 +95,33 @@ async function main() {
   const client = postgres(process.env.DATABASE_URL!);
   const db = drizzle(client, { schema });
 
-  let inserted = 0;
+  let upserted = 0;
   for (const way of ways) {
     if (way.geometry.length < 2) continue; // needs at least 2 points for a LineString
 
-    await db.insert(schema.segments).values({
-      osmWayId: String(way.id),
-      geometry: wayToLineStringWkt(way),
-      name: way.tags?.name ?? null,
-      neighborhood: area.label,
-    });
-    inserted++;
+    // Idempotent: re-running this script for the same area (the Phase 3
+    // re-seed playbook) updates existing ways in place instead of
+    // duplicating every segment — found by audit-project review.
+    await db
+      .insert(schema.segments)
+      .values({
+        osmWayId: String(way.id),
+        geometry: wayToLineStringWkt(way),
+        name: way.tags?.name ?? null,
+        neighborhood: area.label,
+      })
+      .onConflictDoUpdate({
+        target: schema.segments.osmWayId,
+        set: {
+          geometry: wayToLineStringWkt(way),
+          name: way.tags?.name ?? null,
+          neighborhood: area.label,
+        },
+      });
+    upserted++;
   }
 
-  console.log(`Inserted ${inserted} segments.`);
+  console.log(`Upserted ${upserted} segments.`);
   await client.end();
 }
 

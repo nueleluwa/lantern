@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { XMarkIcon } from "@heroicons/react/24/solid";
 import { TagForm } from "./TagForm";
 import { LitTonightQuickAction } from "./LitTonightQuickAction";
 import { ShareButton } from "./ShareButton";
@@ -111,13 +112,16 @@ export function TagSheet({
           right: "var(--space-2)",
           width: 48,
           height: 48,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
           borderRadius: "50%",
           border: "none",
           background: "var(--night-950)",
           color: "var(--mist-100)",
         }}
       >
-        ✕
+        <XMarkIcon width={20} height={20} />
       </button>
 
       {!detail && <p>Loading…</p>}

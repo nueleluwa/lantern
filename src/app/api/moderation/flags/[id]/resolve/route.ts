@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { moderationFlags, tags, contributors } from "@/db/schema";
@@ -30,35 +30,49 @@ export async function POST(
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
+  // Atomic conditional update: only a flag still 'pending' can be
+  // resolved. Two concurrent/duplicate resolve calls on the same flag
+  // (double-click, retry) would otherwise both take the 'upheld' branch
+  // below and double-apply its side effects (trust penalty, rescoring)
+  // — found by audit-project review.
   const [flag] = await db
-    .select({ id: moderationFlags.id, tagId: moderationFlags.tagId })
-    .from(moderationFlags)
-    .where(eq(moderationFlags.id, flagId));
-  if (!flag) {
-    return NextResponse.json({ error: "Flag not found" }, { status: 404 });
-  }
-
-  await db
     .update(moderationFlags)
     .set({ resolution: parsed.data.resolution })
-    .where(eq(moderationFlags.id, flagId));
+    .where(and(eq(moderationFlags.id, flagId), eq(moderationFlags.resolution, "pending")))
+    .returning({ id: moderationFlags.id, tagId: moderationFlags.tagId });
+
+  if (!flag) {
+    const [existing] = await db
+      .select({ id: moderationFlags.id })
+      .from(moderationFlags)
+      .where(eq(moderationFlags.id, flagId));
+    return NextResponse.json(
+      { error: existing ? "Flag already resolved" : "Flag not found" },
+      { status: existing ? 409 : 404 }
+    );
+  }
 
   if (parsed.data.resolution === "upheld") {
-    const [tag] = await db
-      .select({ id: tags.id, segmentId: tags.segmentId, contributorId: tags.contributorId })
-      .from(tags)
-      .where(eq(tags.id, flag.tagId));
+    const tag = await db.transaction(async (tx) => {
+      const [t] = await tx
+        .select({ id: tags.id, segmentId: tags.segmentId, contributorId: tags.contributorId })
+        .from(tags)
+        .where(eq(tags.id, flag.tagId));
+      if (!t) return null;
 
-    if (tag) {
-      await db.update(tags).set({ status: "removed" }).where(eq(tags.id, tag.id));
+      await tx.update(tags).set({ status: "removed" }).where(eq(tags.id, t.id));
 
-      if (tag.contributorId) {
-        await db
+      if (t.contributorId) {
+        await tx
           .update(contributors)
           .set({ trustScore: sql`${contributors.trustScore} - 1` })
-          .where(eq(contributors.id, tag.contributorId));
+          .where(eq(contributors.id, t.contributorId));
       }
 
+      return t;
+    });
+
+    if (tag) {
       after(async () => {
         await recalculateSegment(tag.segmentId);
         await invalidateSegmentCache(tag.segmentId);

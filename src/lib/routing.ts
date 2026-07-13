@@ -1,3 +1,4 @@
+import "server-only";
 import { sql } from "drizzle-orm";
 import { db } from "./db";
 import { ROUTE_DISCLAIMER } from "./route-disclaimer";

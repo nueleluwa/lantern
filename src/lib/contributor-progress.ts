@@ -1,3 +1,4 @@
+import "server-only";
 import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "./db";
 import { contributors } from "@/db/schema";
@@ -26,38 +27,47 @@ function isSameDay(previous: Date, now: Date): boolean {
 }
 
 export async function recordContribution(contributorId: string, now = new Date()) {
-  const [contributor] = await db
-    .select()
-    .from(contributors)
-    .where(eq(contributors.id, contributorId));
-  if (!contributor) return;
+  // Select-for-update + write in one transaction — audit-project review
+  // found the previous plain read-then-write was a lost-update race:
+  // two contributions from the same contributor arriving close together
+  // (two tabs, or drainTagQueue flushing several queued tags back to
+  // back) could both read the same starting row and one update's
+  // streak/tagCount/badge changes would silently clobber the other's.
+  await db.transaction(async (tx) => {
+    const [contributor] = await tx
+      .select()
+      .from(contributors)
+      .where(eq(contributors.id, contributorId))
+      .for("update");
+    if (!contributor) return;
 
-  let newStreak = 1;
-  if (contributor.lastContributionAt) {
-    const last = new Date(contributor.lastContributionAt);
-    if (isSameDay(last, now)) {
-      newStreak = contributor.currentStreakDays || 1;
-    } else if (isConsecutiveDay(last, now)) {
-      newStreak = contributor.currentStreakDays + 1;
+    let newStreak = 1;
+    if (contributor.lastContributionAt) {
+      const last = new Date(contributor.lastContributionAt);
+      if (isSameDay(last, now)) {
+        newStreak = contributor.currentStreakDays || 1;
+      } else if (isConsecutiveDay(last, now)) {
+        newStreak = contributor.currentStreakDays + 1;
+      }
     }
-  }
 
-  const newTagCount = contributor.tagCount + 1;
-  const earnedBadges = new Set(contributor.badges);
-  for (const { tagCount, badge } of BADGE_THRESHOLDS) {
-    if (newTagCount >= tagCount) earnedBadges.add(badge);
-  }
+    const newTagCount = contributor.tagCount + 1;
+    const earnedBadges = new Set(contributor.badges);
+    for (const { tagCount, badge } of BADGE_THRESHOLDS) {
+      if (newTagCount >= tagCount) earnedBadges.add(badge);
+    }
 
-  await db
-    .update(contributors)
-    .set({
-      tagCount: newTagCount,
-      currentStreakDays: newStreak,
-      longestStreakDays: Math.max(newStreak, contributor.longestStreakDays),
-      lastContributionAt: now,
-      badges: Array.from(earnedBadges),
-    })
-    .where(eq(contributors.id, contributorId));
+    await tx
+      .update(contributors)
+      .set({
+        tagCount: newTagCount,
+        currentStreakDays: newStreak,
+        longestStreakDays: Math.max(newStreak, contributor.longestStreakDays),
+        lastContributionAt: now,
+        badges: Array.from(earnedBadges),
+      })
+      .where(eq(contributors.id, contributorId));
+  });
 }
 
 // DATA_MODEL.md: "trust_score ... rises with corroborated tags." Called

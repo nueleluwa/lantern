@@ -8,6 +8,7 @@ import {
   timestamp,
   pgEnum,
   customType,
+  index,
 } from "drizzle-orm/pg-core";
 
 // Requires the PostGIS extension enabled on the database
@@ -70,7 +71,10 @@ export const tagKindEnum = pgEnum("tag_kind", [
 // sub-split of one), seeded from OSM ways in the launch bbox.
 export const segments = pgTable("segments", {
   id: uuid("id").defaultRandom().primaryKey(),
-  osmWayId: text("osm_way_id").notNull(),
+  // Unique so re-running scripts/seed-osm-ways.ts (the Phase 3 re-seed
+  // playbook) is idempotent instead of duplicating every segment —
+  // found by audit-project review.
+  osmWayId: text("osm_way_id").notNull().unique(),
   geometry: geometry("geometry").notNull(),
   name: text("name"),
   neighborhood: text("neighborhood"),
@@ -115,46 +119,64 @@ export const contributors = pgTable("contributors", {
   badges: text("badges").array().notNull().default([]),
 });
 
-export const tags = pgTable("tags", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  segmentId: uuid("segment_id")
-    .notNull()
-    .references(() => segments.id),
-  contributorId: uuid("contributor_id").references(() => contributors.id),
-  // Opaque client-generated token (src/lib/device-id.ts) — used for rate
-  // limiting and duplicate-burst detection only. Never a real identifier
-  // (DO_NOT.md: no handle derivable from a real name/phone/account).
-  deviceId: text("device_id"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  timeOfDay: timeOfDayEnum("time_of_day").notNull(),
-  lighting: lightingEnum("lighting").notNull(),
-  safetyFeeling: safetyFeelingEnum("safety_feeling").notNull(),
-  category: tagCategoryEnum("category"),
-  note: text("note"), // max ~280 chars, enforced at the API boundary
-  kind: tagKindEnum("kind").notNull().default("standard"),
-  // Base multiplier before time-decay (e.g. lowered for a low-trust
-  // contributor); the exp(-days/half_life) decay factor itself is
-  // computed live at aggregation time in src/lib/scoring.ts, never
-  // stored, so it can't go stale.
-  weight: real("weight").notNull().default(1),
-  flaggedCount: integer("flagged_count").notNull().default(0),
-  status: tagStatusEnum("status").notNull().default("active"),
+export const tags = pgTable(
+  "tags",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    segmentId: uuid("segment_id")
+      .notNull()
+      .references(() => segments.id),
+    contributorId: uuid("contributor_id").references(() => contributors.id),
+    // Opaque client-generated token (src/lib/device-id.ts) — used for rate
+    // limiting and duplicate-burst detection only. Never a real identifier
+    // (DO_NOT.md: no handle derivable from a real name/phone/account).
+    deviceId: text("device_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    timeOfDay: timeOfDayEnum("time_of_day").notNull(),
+    lighting: lightingEnum("lighting").notNull(),
+    safetyFeeling: safetyFeelingEnum("safety_feeling").notNull(),
+    category: tagCategoryEnum("category"),
+    note: text("note"), // max ~280 chars, enforced at the API boundary
+    kind: tagKindEnum("kind").notNull().default("standard"),
+    // Base multiplier before time-decay (e.g. lowered for a low-trust
+    // contributor); the exp(-days/half_life) decay factor itself is
+    // computed live at aggregation time in src/lib/scoring.ts, never
+    // stored, so it can't go stale.
+    weight: real("weight").notNull().default(1),
+    flaggedCount: integer("flagged_count").notNull().default(0),
+    status: tagStatusEnum("status").notNull().default("active"),
 
-  // Phase 2 (MVP_SCOPE.md): partner-seed bulk import, "tagged with a
-  // seed_source field distinct from organic tags".
-  seedSource: text("seed_source"),
-});
+    // Phase 2 (MVP_SCOPE.md): partner-seed bulk import, "tagged with a
+    // seed_source field distinct from organic tags".
+    seedSource: text("seed_source"),
+  },
+  (table) => [
+    // recalculateSegment (src/lib/scoring.ts) filters on exactly this
+    // pair on every tag write and hourly for every segment — found
+    // unindexed by audit-project review (segment_id is a FK, Postgres
+    // doesn't auto-index those).
+    index("tags_segment_id_status_idx").on(table.segmentId, table.status),
+    index("tags_contributor_id_idx").on(table.contributorId),
+  ]
+);
 
-export const moderationFlags = pgTable("moderation_flags", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  tagId: uuid("tag_id")
-    .notNull()
-    .references(() => tags.id),
-  flaggedBy: uuid("flagged_by").references(() => contributors.id),
-  reason: flagReasonEnum("reason").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  resolution: flagResolutionEnum("resolution").notNull().default("pending"),
-});
+export const moderationFlags = pgTable(
+  "moderation_flags",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => tags.id),
+    flaggedBy: uuid("flagged_by").references(() => contributors.id),
+    reason: flagReasonEnum("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    resolution: flagResolutionEnum("resolution").notNull().default("pending"),
+  },
+  (table) => [
+    index("moderation_flags_tag_id_idx").on(table.tagId),
+    index("moderation_flags_resolution_idx").on(table.resolution),
+  ]
+);
 
 // Phase 3 (MVP_SCOPE.md): "B2B/B2G data export for partners (aggregated,
 // de-identified only)". A key gates access to the aggregated export

@@ -1,3 +1,4 @@
+import "server-only";
 import { NextRequest } from "next/server";
 
 // PRD.md "Open questions" leaves moderator identity unresolved ("Lantern

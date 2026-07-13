@@ -1,3 +1,4 @@
+import "server-only";
 import { redis } from "./redis";
 
 // Phase 3 (MVP_SCOPE.md): "Live share / walk-with-me companion mode."

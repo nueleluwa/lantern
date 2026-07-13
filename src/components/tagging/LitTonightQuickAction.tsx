@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { LightBulbIcon, MoonIcon } from "@heroicons/react/24/solid";
 import { enqueueTag, drainTagQueue } from "@/lib/tag-queue";
+import { getCurrentTimeOfDay } from "@/lib/time-of-day";
 
 // MVP_SCOPE.md Phase 2 / PRD.md P1: "'Lit tonight' real-time lighting
 // status distinct from static lighting infrastructure." Uses tags.kind =
@@ -12,25 +13,34 @@ import { enqueueTag, drainTagQueue } from "@/lib/tag-queue";
 // standard or infrastructure report.
 export function LitTonightQuickAction({ segmentId }: { segmentId: string }) {
   const [sent, setSent] = useState<"lit" | "dark" | null>(null);
+  const [queuedOffline, setQueuedOffline] = useState(false);
 
   async function report(status: "lit" | "dark") {
-    const hour = new Date().getHours();
-    const timeOfDay = hour >= 6 && hour < 18 ? "day" : hour >= 18 && hour < 21 ? "evening" : "night";
+    const timeOfDay = getCurrentTimeOfDay();
 
-    enqueueTag(segmentId, {
+    const entry = enqueueTag(segmentId, {
       timeOfDay,
       lighting: status,
       safetyFeeling: status === "lit" ? "safe" : "avoid",
       kind: "lit_tonight",
     });
-    await drainTagQueue();
+    const { succeeded } = await drainTagQueue();
+    // Check this specific entry's outcome rather than assuming success —
+    // audit-project review found the previous version claimed success
+    // unconditionally even when the submission was actually still
+    // offline-queued (worse here than the full tag form, since "lit
+    // tonight" reports have a 1-day half-life and silently queuing
+    // without telling the user matters more).
+    setQueuedOffline(!succeeded.includes(entry.localId));
     setSent(status);
   }
 
   if (sent) {
     return (
       <p style={{ fontSize: "var(--text-label)", color: "var(--mist-400)" }}>
-        Thanks — reported {sent === "lit" ? "lit" : "dark"} right now.
+        {queuedOffline
+          ? `Saved — will submit when you're back online.`
+          : `Thanks — reported ${sent} right now.`}
       </p>
     );
   }

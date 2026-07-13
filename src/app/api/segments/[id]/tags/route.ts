@@ -58,32 +58,40 @@ export async function POST(
 
   const contributorId = await getContributorIdFromCookie();
 
-  const [tag] = await db
-    .insert(tags)
-    .values({
-      segmentId,
-      deviceId,
-      contributorId,
-      timeOfDay: body.timeOfDay,
-      lighting: body.lighting,
-      safetyFeeling: body.safetyFeeling,
-      category: body.category ?? null,
-      note: body.note ?? null,
-      kind: body.kind,
-    })
-    .returning();
+  // Insert + counter update wrapped together — found by audit-project
+  // review as two separate round trips with no transaction, letting a
+  // crash between them permanently drift segments.tag_count from the
+  // true tag count with no reconciliation path.
+  const [tag] = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(tags)
+      .values({
+        segmentId,
+        deviceId,
+        contributorId,
+        timeOfDay: body.timeOfDay,
+        lighting: body.lighting,
+        safetyFeeling: body.safetyFeeling,
+        category: body.category ?? null,
+        note: body.note ?? null,
+        kind: body.kind,
+      })
+      .returning();
+
+    await tx
+      .update(segments)
+      .set({
+        tagCount: sql`${segments.tagCount} + 1`,
+        lastTaggedAt: new Date(),
+      })
+      .where(eq(segments.id, segmentId));
+
+    return [inserted];
+  });
 
   if (contributorId) {
     await recordContribution(contributorId);
   }
-
-  await db
-    .update(segments)
-    .set({
-      tagCount: sql`${segments.tagCount} + 1`,
-      lastTaggedAt: new Date(),
-    })
-    .where(eq(segments.id, segmentId));
 
   // ARCHITECTURE.md §2 write path: recalculation happens off the
   // client-visible request path so submission stays fast. On Vercel
