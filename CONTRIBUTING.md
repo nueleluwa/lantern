@@ -15,6 +15,7 @@ Recommended reading order for new context, same order the project itself was bui
 7. `MVP_SCOPE.md` — phased build order
 8. `ROADMAP.md` — current status of every phase item, what's still placeholder
 9. `CHANGELOG.md` — what's shipped and the reasoning behind judgment calls made where the docs above were ambiguous
+10. `docs/API.md` — full API reference (endpoints, request/response shapes, auth, rate limits) — update this alongside any route change, same as ROADMAP/CHANGELOG
 
 ## Local setup
 
@@ -31,6 +32,7 @@ npm run dev
 - If you touched scoring, moderation, or anything in `DO_NOT.md`'s territory, say so explicitly in the PR description and explain how the change stays inside those constraints.
 - If you made a judgment call on something the docs leave ambiguous, add an entry to `CHANGELOG.md`'s "Decisions logged" section — don't let it live only in a code comment. Future contributors need to find it without reading every file.
 - Update `ROADMAP.md` if your change moves an item from placeholder to real, or from one phase to done.
+- Update `docs/API.md` if you add, remove, or change the shape of any endpoint — it's a reference, and a stale one is worse than none.
 
 ## Code style
 

@@ -4,7 +4,7 @@ Crowdsourced safe-route mapper for people walking at night in Nigerian cities, l
 
 **Live:** <https://lantern-blue.vercel.app> (see `ROADMAP.md` for what's real vs. still placeholder before this is launch-ready).
 
-Full product/architecture docs live in this directory: `PROJECT.md`, `DO_NOT.md`, `PRD.md`, `DATA_MODEL.md`, `ARCHITECTURE.md`, `DESIGN_SYSTEM.md`, `MVP_SCOPE.md`. **Read `DO_NOT.md` before touching moderation, scoring, or location-handling code** — its constraints override convenience every time. See `CONTRIBUTING.md` for the recommended reading order and `ROADMAP.md` for what's real vs. placeholder right now.
+Full product/architecture docs live in this directory: `PROJECT.md`, `DO_NOT.md`, `PRD.md`, `DATA_MODEL.md`, `ARCHITECTURE.md`, `DESIGN_SYSTEM.md`, `MVP_SCOPE.md`. **Read `DO_NOT.md` before touching moderation, scoring, or location-handling code** — its constraints override convenience every time. See `CONTRIBUTING.md` for the recommended reading order, `ROADMAP.md` for what's real vs. placeholder right now, and **[`docs/API.md`](docs/API.md) for the full API reference** (every endpoint, request/response shapes, auth, rate limits).
 
 ## Stack
 
