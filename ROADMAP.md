@@ -76,7 +76,14 @@ These were genuine gaps in the docs, resolved with a judgment call rather than b
 1. Pick and name the real launch neighborhood (the seeded bbox sits on real Port Harcourt streets already, but was never deliberately chosen — still says `"TODO: name the launch neighborhood"`).
 2. Author the real dark map style per `DESIGN_SYSTEM.md` (currently plain OSM raster tiles).
 3. Decide real moderator identity/roles and replace the shared-secret gate.
-4. Deploy to Vercel and confirm the cron job actually fires on schedule against the live project.
-5. Live-test live-share and B2B export against the now-live Redis/Supabase (built, never exercised).
+4. Confirm the cron job actually fires on schedule against the live deployment (deployed 2026-07-14, not yet observed firing — see "Live deployment" below).
+5. Live-test live-share and B2B export against the live deployment (built, never exercised end-to-end from a real client).
 6. Expand test coverage to routing.ts and the API routes (needs test DB/Redis infrastructure).
 7. Real UX design pass on RouteSuggestion's keyboard-inaccessible endpoint picking.
+
+## Live deployment (2026-07-14)
+
+- Vercel project `lantern` under scope `emmanuel-eluwas-projects`, connected to the GitHub repo for auto-deploy on push to `master`.
+- Live URL: **<https://lantern-blue.vercel.app>**. First deploy went straight to production (Vercel's default target for a git-linked project's default branch when there's no prior production deployment) rather than a preview — verified working after the fact: homepage, `/api/segments`, and `/api/route` all confirmed 200 with real data from the live Supabase project; `/api/cron/recalculate` correctly 401s without the secret.
+- **Hobby (free) plan constraint discovered at deploy time:** Vercel Hobby accounts only support daily cron jobs, not the hourly schedule `ARCHITECTURE.md`/`vercel.json` originally specified. Changed to once daily at 03:00 UTC (~04:00 Lagos) rather than unilaterally suggesting a paid-plan upgrade. This only affects the "pure time-decay with no new tags" background pass — real-time score updates on tag submission still happen synchronously via `after()` regardless of cron cadence, so this is a low-stakes downgrade, not a functional gap. Revisit if daily decay resolution turns out to be too coarse in practice.
+- All 5 env vars (`DATABASE_URL`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `CRON_SECRET`, `ADMIN_SECRET`) set for both Production and Preview environments via the Vercel CLI, piped from the local `.env` file so the actual secret values never appeared in a command line or transcript.

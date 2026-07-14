@@ -2,6 +2,8 @@
 
 Crowdsourced safe-route mapper for people walking at night in Nigerian cities, launching in Port Harcourt. A community-reported lighting/safety overlay on OpenStreetMap — not a router that guarantees safety (see `DO_NOT.md`).
 
+**Live:** <https://lantern-blue.vercel.app> (see `ROADMAP.md` for what's real vs. still placeholder before this is launch-ready).
+
 Full product/architecture docs live in this directory: `PROJECT.md`, `DO_NOT.md`, `PRD.md`, `DATA_MODEL.md`, `ARCHITECTURE.md`, `DESIGN_SYSTEM.md`, `MVP_SCOPE.md`. **Read `DO_NOT.md` before touching moderation, scoring, or location-handling code** — its constraints override convenience every time. See `CONTRIBUTING.md` for the recommended reading order and `ROADMAP.md` for what's real vs. placeholder right now.
 
 ## Stack
@@ -11,7 +13,7 @@ Full product/architecture docs live in this directory: `PROJECT.md`, `DO_NOT.md`
 - Supabase Postgres with PostGIS + pgRouting enabled — segments, tags, routing topology
 - Upstash Redis — bbox/segment read cache, live-share ephemeral state
 - Drizzle ORM (`postgres-js` driver)
-- Vercel Cron Jobs — hourly score recalculation
+- Vercel Cron Jobs — daily score recalculation (Vercel Hobby plan only supports daily cron; see `ROADMAP.md`)
 
 ## What's built
 
@@ -57,4 +59,4 @@ npm run partner:create-key -- --name "UNIPORT Safety Office"
 
 ## What's still placeholder (not launch-ready)
 
-See `ROADMAP.md` for the full, kept-current list. In short: the map style is MapLibre's public demo style (needs real Maputnik authoring per `DESIGN_SYSTEM.md`), the launch-area bbox is a placeholder, moderator auth is a single shared secret, and the routing feature hasn't been exercised against a live Supabase+pgRouting instance.
+See `ROADMAP.md` for the full, kept-current list. In short: the map style is plain OpenStreetMap raster tiles (needs real Maputnik dark-vector authoring per `DESIGN_SYSTEM.md`), the launch-area bbox is a placeholder, and moderator auth is a single shared secret.
