@@ -1,11 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
-import { DEFAULT_LAUNCH_AREA } from "@/config/launch-area";
-import { PLACEHOLDER_MAP_STYLE_URL } from "@/styles/map-style";
+import { useState } from "react";
 import { SegmentLayer } from "./SegmentLayer";
+import { SegmentList } from "./SegmentList";
 import { DayNightToggle } from "./DayNightToggle";
 import { TagSheet } from "@/components/tagging/TagSheet";
 import { RouteSuggestion } from "@/components/routing/RouteSuggestion";
@@ -13,150 +10,32 @@ import { RouteLayer } from "@/components/routing/RouteLayer";
 import { LiveShareControl } from "@/components/live-share/LiveShareControl";
 import { AreaSelector } from "./AreaSelector";
 import type { LaunchArea } from "@/config/launch-area";
+import { useMapInstance } from "./hooks/useMapInstance";
+import { useSegments } from "./hooks/useSegments";
+import { useSegmentSelection } from "./hooks/useSegmentSelection";
+import { useRoutePicking } from "./hooks/useRoutePicking";
+import { useDayNightThemeSync } from "./hooks/useDayNightThemeSync";
 
 type TimeOfDay = "day" | "night";
 type Mode = "explore" | "routing";
-type PickTarget = "from" | "to" | null;
 
+// A thin composition of map hooks — audit-project review found this
+// component owning map lifecycle, day/night sync, segment fetching,
+// click/hover wiring, and routing pick-point logic all in one 233-line
+// component with six co-located effects. Each concern now lives in its
+// own hook under ./hooks.
 export function MapView() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [map, setMap] = useState<MapLibreMap | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { containerRef, map, loading } = useMapInstance();
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("night");
-  const [segments, setSegments] = useState<GeoJSON.FeatureCollection | null>(null);
-  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
-
   const [mode, setMode] = useState<Mode>("explore");
-  const [picking, setPicking] = useState<PickTarget>(null);
-  const [routeFrom, setRouteFrom] = useState<[number, number] | null>(null);
-  const [routeTo, setRouteTo] = useState<[number, number] | null>(null);
+
+  useDayNightThemeSync(timeOfDay);
+
+  const segments = useSegments(map, timeOfDay);
+  const { selectedSegmentId, setSelectedSegmentId } = useSegmentSelection(map, mode === "explore");
+  const { routeFrom, routeTo, pickFrom, pickTo, cancelPicking } = useRoutePicking(map);
   const [routeGeometry, setRouteGeometry] = useState<GeoJSON.LineString | null>(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const instance = new maplibregl.Map({
-      container: containerRef.current,
-      style: PLACEHOLDER_MAP_STYLE_URL,
-      center: DEFAULT_LAUNCH_AREA.center,
-      zoom: DEFAULT_LAUNCH_AREA.defaultZoom,
-      // DESIGN_SYSTEM.md: never disable pinch-zoom.
-      touchZoomRotate: true,
-    });
-
-    instance.on("load", () => setLoading(false));
-    setMap(instance);
-
-    return () => instance.remove();
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.setAttribute(
-      "data-theme",
-      timeOfDay === "day" ? "day" : "night"
-    );
-  }, [timeOfDay]);
-
-  useEffect(() => {
-    if (!map) return;
-
-    // Aborts the previous in-flight request on each new call — audit-
-    // project review found rapid pan/zoom could let an older, slower
-    // response's setSegments() run after a newer one, showing a stale
-    // viewport's segments.
-    let controller: AbortController | null = null;
-
-    const fetchForCurrentView = async () => {
-      controller?.abort();
-      controller = new AbortController();
-
-      const bounds = map.getBounds();
-      const bbox = [
-        bounds.getWest(),
-        bounds.getSouth(),
-        bounds.getEast(),
-        bounds.getNorth(),
-      ].join(",");
-
-      try {
-        const res = await fetch(
-          `/api/segments?bbox=${bbox}&time_of_day=${timeOfDay}`,
-          { signal: controller.signal }
-        );
-        if (!res.ok) return;
-        setSegments(await res.json());
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return;
-        throw err;
-      }
-    };
-
-    fetchForCurrentView();
-    map.on("moveend", fetchForCurrentView);
-    return () => {
-      controller?.abort();
-      map.off("moveend", fetchForCurrentView);
-    };
-  }, [map, timeOfDay]);
-
-  // PRD.md Flow A step 3: "Tap a segment -> see tag breakdown..."
-  //
-  // Queries rendered features at click/move time rather than binding
-  // per-layer listeners (map.on('click', layerId, cb)) — those only
-  // attach successfully if the layer already exists at attach time, but
-  // SegmentLayer creates the layers asynchronously from this same
-  // segments data. Binding per-layer meant this effect had to depend on
-  // `segments` just to retry attachment once the layers appeared, which
-  // also re-attached listeners on every viewport refetch. A plain
-  // map-level handler that queries whichever layers currently exist
-  // works regardless of load order and only needs [map, mode].
-  useEffect(() => {
-    if (!map) return;
-
-    const layerIds = ["segments-safe", "segments-caution", "segments-avoid", "segments-unrated"];
-    const existingLayerIds = () => layerIds.filter((id) => map.getLayer(id));
-
-    const handleClick = (e: maplibregl.MapMouseEvent) => {
-      if (mode === "routing") return; // routing mode uses its own map-level click handler below
-      const layers = existingLayerIds();
-      if (layers.length === 0) return;
-      const feature = map.queryRenderedFeatures(e.point, { layers })[0];
-      const id = feature?.properties?.id;
-      if (id) setSelectedSegmentId(id);
-    };
-
-    const handleMouseMove = (e: maplibregl.MapMouseEvent) => {
-      const layers = existingLayerIds();
-      const hovering = layers.length > 0 && map.queryRenderedFeatures(e.point, { layers }).length > 0;
-      map.getCanvas().style.cursor = hovering ? "pointer" : "";
-    };
-
-    map.on("click", handleClick);
-    map.on("mousemove", handleMouseMove);
-
-    return () => {
-      map.off("click", handleClick);
-      map.off("mousemove", handleMouseMove);
-    };
-  }, [map, mode]);
-
-  // Phase 3 routing mode: a plain map click (not tied to a segment
-  // layer) sets the picked start/end point.
-  useEffect(() => {
-    if (!map || !picking) return;
-
-    const handleMapClick = (e: maplibregl.MapMouseEvent) => {
-      const point: [number, number] = [e.lngLat.lng, e.lngLat.lat];
-      if (picking === "from") setRouteFrom(point);
-      else setRouteTo(point);
-      setPicking(null);
-    };
-
-    map.on("click", handleMapClick);
-    return () => {
-      map.off("click", handleMapClick);
-    };
-  }, [map, picking]);
+  const [listOpen, setListOpen] = useState(false);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100dvh" }}>
@@ -191,6 +70,14 @@ export function MapView() {
         }}
       >
         <DayNightToggle value={timeOfDay} onChange={setTimeOfDay} />
+        {mode === "explore" && (
+          <SegmentList
+            open={listOpen}
+            onOpenChange={setListOpen}
+            segments={segments}
+            onSelect={setSelectedSegmentId}
+          />
+        )}
         <AreaSelector
           onSelect={(area: LaunchArea) => {
             map?.flyTo({ center: area.center, zoom: area.defaultZoom });
@@ -198,10 +85,11 @@ export function MapView() {
         />
         <button
           type="button"
+          className="lantern-btn"
           onClick={() => {
             setMode((m) => (m === "explore" ? "routing" : "explore"));
             setSelectedSegmentId(null);
-            setPicking(null);
+            cancelPicking();
           }}
           style={{
             height: 40,
@@ -225,8 +113,8 @@ export function MapView() {
           from={routeFrom}
           to={routeTo}
           timeOfDay={timeOfDay}
-          onPickFrom={() => setPicking("from")}
-          onPickTo={() => setPicking("to")}
+          onPickFrom={pickFrom}
+          onPickTo={pickTo}
           onResult={setRouteGeometry}
         />
       )}
