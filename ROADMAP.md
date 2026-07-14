@@ -59,18 +59,17 @@ These were genuine gaps in the docs, resolved with a judgment call rather than b
 - `CRON_SECRET` / `ADMIN_SECRET` generated and set locally in `.env` (not committed).
 - Not yet done: Vercel project/deployment. Everything above has only been run against a local dev server pointed at the live Supabase/Upstash instances.
 
-## Known issues from `/audit-project` (2026-07-14)
+## `/audit-project` findings (2026-07-14) — resolved
 
-88 findings from an 8-pass multi-agent review; critical/high items with a clear fix are already applied (see CHANGELOG.md and the "Fix critical/high findings" commit). Deferred, in priority order:
+88 findings from an 8-pass multi-agent review (5 critical, 25 high, 30 medium, 28 low). All critical and high findings fixed, plus the great majority of medium/low ones, across 4 commits (search git log for "audit-project"). Highlights: batched `recalculateAllSegments` from N+1 to set-based SQL, live-share owner/viewer token separation, shared API error envelope + pagination + `/api/v1` versioning, admin/partner auth lockout, missing DB indexes and transactions, first real test suite (37 tests covering the DO_NOT.md-critical stability-window logic and streak/badge logic), MapView split into hooks, and a keyboard-accessible segment list (`SegmentList.tsx`) alongside the map-click path.
 
-- **No test suite** (critical) — vitest is configured, zero test files exist. Highest-priority modules to cover first: `src/lib/scoring.ts` (the stability-window/banding logic DO_NOT.md cares most about), `src/lib/routing.ts`, `src/lib/contributor-progress.ts`.
-- **MapView.tsx is doing too much** — 233 lines, 6 co-located effects, five loosely related pieces of state. Needs splitting into `useSegments`/`useSegmentSelection`/`useRoutePicking` hooks.
-- **Map interaction is mouse/touch-only** — segment selection is a MapLibre canvas click with no keyboard/screen-reader path at all (canvas isn't in the accessibility tree). Needs a parallel DOM-based path (e.g. a focusable segment list) for the core tagging flow to be keyboard-reachable.
-- **Live-share session id is both identifier and credential** — anyone with the share link can overwrite the walker's position or end the session, not just view it. Needs separate owner/viewer tokens (API contract change).
-- **TagSheet's dialog has no focus trap / Escape-to-close / focus-on-open** — `role="dialog"` without the behavior to back it up.
-- API inconsistencies not yet addressed: no shared error envelope across routes, no pagination on `/api/segments` or the moderation queue, no API versioning on the partner export endpoint, admin/partner auth has no rate limiting or lockout.
-- `recalculateAllSegments`'s N+1 query pattern (self-documented, "fine at Phase 1 scale") is a real cron-timeout risk once segment count grows — batching into set-based SQL is the real fix, not just bounded concurrency.
-- Full findings list (30 medium, 28 low not detailed here) lived in a review-queue JSON in `.claude/` during the session — not committed (gitignored, local tooling state); re-run `/audit-project` to regenerate if needed.
+**Deliberately still deferred** (real judgment calls or bigger scope, not silently taken on):
+
+- **RouteSuggestion's route-endpoint picking is still map-tap-only** — no keyboard/text-entry fallback. A coordinate/address input is real UX design work, not a parallel-path fix like the segment list was.
+- **Routing-graph bbox restriction** (bound `pgr_dijkstra`'s cost query to a region around from/to) — not implemented; Phase 1 is scoped to one neighborhood (~2400 edges post-noding, not a real bottleneck yet), and a half-tuned bbox padding risks silently breaking valid detour routes. Revisit when expanding beyond one neighborhood.
+- **`segments.*` FK deletion strategy** (`ON DELETE no action`) — no safe way to hard-delete a segment without manually clearing dependent tags first. Needs a deliberate decision, not a default.
+- **Routing/rate-limit/API route integration tests** — the new test suite covers pure logic only; DB- and Redis-driven code still needs a test Postgres instance or route-handler mocking to test properly.
+- Full original findings list (including the ~15 low-severity items not individually called out above, e.g. SegmentLayer's hardcoded hex colors duplicating tokens.css) lived in a review-queue JSON in `.claude/` during the session — not committed (gitignored, local tooling state); re-run `/audit-project` to regenerate if needed.
 
 ## Before this can actually launch
 
@@ -79,4 +78,5 @@ These were genuine gaps in the docs, resolved with a judgment call rather than b
 3. Decide real moderator identity/roles and replace the shared-secret gate.
 4. Deploy to Vercel and confirm the cron job actually fires on schedule against the live project.
 5. Live-test live-share and B2B export against the now-live Redis/Supabase (built, never exercised).
-6. Work through the audit findings above, starting with the test suite and the keyboard-accessibility gap.
+6. Expand test coverage to routing.ts and the API routes (needs test DB/Redis infrastructure).
+7. Real UX design pass on RouteSuggestion's keyboard-inaccessible endpoint picking.
