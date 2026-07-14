@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getOrCreateDeviceId } from "@/lib/device-id";
 
 // Phase 3 (MVP_SCOPE.md): "Live share / walk-with-me companion mode."
 // Explicit opt-in per tap (DO_NOT.md's opt-in bar for anything location-
@@ -19,6 +20,12 @@ export function LiveShareControl() {
   // so the server-side session was never explicitly ended on
   // navigate-away mid-share. Found by audit-project review.
   const sessionIdRef = useRef<string | null>(null);
+  // Separate from the share link on purpose — only this device holds
+  // it, and only it can update/end the session (audit-project review:
+  // previously the share link itself doubled as the credential, so
+  // anyone who obtained it could overwrite the walker's position or end
+  // the session, not just view it).
+  const ownerTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -30,9 +37,13 @@ export function LiveShareControl() {
   async function start() {
     if (!("geolocation" in navigator)) return;
 
-    const res = await fetch("/api/live-share", { method: "POST" });
-    const { id } = await res.json();
+    const res = await fetch("/api/live-share", {
+      method: "POST",
+      headers: { "X-Device-Id": getOrCreateDeviceId() },
+    });
+    const { id, ownerToken } = await res.json();
     sessionIdRef.current = id;
+    ownerTokenRef.current = ownerToken;
     setShareUrl(`${window.location.origin}/share/${id}`);
 
     watchIdRef.current = navigator.geolocation.watchPosition(
@@ -47,7 +58,7 @@ export function LiveShareControl() {
       if (!lastPositionRef.current) return;
       await fetch(`/api/live-share/${id}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Owner-Token": ownerToken },
         body: JSON.stringify(lastPositionRef.current),
       });
     }, UPDATE_INTERVAL_MS);
@@ -56,8 +67,14 @@ export function LiveShareControl() {
   async function stop() {
     if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
     if (intervalRef.current) clearInterval(intervalRef.current);
-    if (sessionIdRef.current) await fetch(`/api/live-share/${sessionIdRef.current}`, { method: "DELETE" });
+    if (sessionIdRef.current && ownerTokenRef.current) {
+      await fetch(`/api/live-share/${sessionIdRef.current}`, {
+        method: "DELETE",
+        headers: { "X-Owner-Token": ownerTokenRef.current },
+      });
+    }
     sessionIdRef.current = null;
+    ownerTokenRef.current = null;
     setShareUrl(null);
   }
 

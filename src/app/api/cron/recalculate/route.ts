@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recalculateAllSegments } from "@/lib/scoring";
+import { apiError } from "@/lib/api-error";
 
 // Vercel Cron Jobs invocation target (see vercel.json, hourly) —
 // ARCHITECTURE.md §3: "Runs on tag write and on a rolling schedule (e.g.
@@ -9,7 +10,7 @@ import { recalculateAllSegments } from "@/lib/scoring";
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiError("unauthorized", "Unauthorized");
   }
 
   const count = await recalculateAllSegments();

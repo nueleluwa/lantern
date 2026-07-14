@@ -7,6 +7,7 @@ import { moderationFlags, tags, contributors } from "@/db/schema";
 import { isAuthorizedAdmin } from "@/lib/admin-auth";
 import { recalculateSegment } from "@/lib/scoring";
 import { invalidateSegmentCache } from "@/lib/redis";
+import { apiError, apiValidationError } from "@/lib/api-error";
 
 const bodySchema = z.object({
   resolution: z.enum(["upheld", "dismissed"]),
@@ -20,14 +21,14 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!isAuthorizedAdmin(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isAuthorizedAdmin(request))) {
+    return apiError("unauthorized", "Unauthorized");
   }
 
   const { id: flagId } = await params;
   const parsed = bodySchema.safeParse(await request.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationError(parsed.error);
   }
 
   // Atomic conditional update: only a flag still 'pending' can be
@@ -46,10 +47,9 @@ export async function POST(
       .select({ id: moderationFlags.id })
       .from(moderationFlags)
       .where(eq(moderationFlags.id, flagId));
-    return NextResponse.json(
-      { error: existing ? "Flag already resolved" : "Flag not found" },
-      { status: existing ? 409 : 404 }
-    );
+    return existing
+      ? apiError("conflict", "Flag already resolved")
+      : apiError("not_found", "Flag not found");
   }
 
   if (parsed.data.resolution === "upheld") {

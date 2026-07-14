@@ -14,16 +14,22 @@ const BADGE_THRESHOLDS: { tagCount: number; badge: string }[] = [
   { tagCount: 200, badge: "Lantern Keeper" },
 ];
 
+// Port Harcourt is Africa/Lagos, a fixed UTC+1 with no DST — bucketing
+// by raw UTC calendar day (as this did before) means a contribution
+// just after UTC midnight but still the same Lagos evening, or vice
+// versa, could wrongly break or extend a streak. audit-project review.
+const LOCAL_UTC_OFFSET_MS = 60 * 60 * 1000;
+
+function localDayNumber(date: Date): number {
+  return Math.floor((date.getTime() + LOCAL_UTC_OFFSET_MS) / (1000 * 60 * 60 * 24));
+}
+
 function isConsecutiveDay(previous: Date, now: Date): boolean {
-  const prevDay = Math.floor(previous.getTime() / (1000 * 60 * 60 * 24));
-  const nowDay = Math.floor(now.getTime() / (1000 * 60 * 60 * 24));
-  return nowDay - prevDay === 1;
+  return localDayNumber(now) - localDayNumber(previous) === 1;
 }
 
 function isSameDay(previous: Date, now: Date): boolean {
-  const prevDay = Math.floor(previous.getTime() / (1000 * 60 * 60 * 24));
-  const nowDay = Math.floor(now.getTime() / (1000 * 60 * 60 * 24));
-  return nowDay === prevDay;
+  return localDayNumber(now) === localDayNumber(previous);
 }
 
 export async function recordContribution(contributorId: string, now = new Date()) {

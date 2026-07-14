@@ -58,8 +58,12 @@ export async function findSuggestedRoute(
 ): Promise<RouteResult | null> {
   const scoreColumn = SCORE_COLUMN[timeOfDay];
 
-  const startId = await nearestNodeId(from[0], from[1]);
-  const endId = await nearestNodeId(to[0], to[1]);
+  // Independent lookups — audit-project review found these awaited
+  // sequentially, adding an avoidable round trip to every route request.
+  const [startId, endId] = await Promise.all([
+    nearestNodeId(from[0], from[1]),
+    nearestNodeId(to[0], to[1]),
+  ]);
   if (startId === null || endId === null || startId === endId) return null;
 
   // Cost = this sub-edge's own length (not the whole original street's

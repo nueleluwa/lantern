@@ -92,7 +92,7 @@ async function main() {
   const ways = await fetchWaysInBbox(area.bbox);
   console.log(`Fetched ${ways.length} ways from Overpass.`);
 
-  const client = postgres(process.env.DATABASE_URL!);
+  const client = postgres(process.env.DATABASE_URL!, { prepare: false });
   const db = drizzle(client, { schema });
 
   let upserted = 0;

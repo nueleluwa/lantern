@@ -75,6 +75,7 @@ export default function ModerationQueuePage() {
       <div style={{ display: "flex", gap: "var(--space-1)", margin: "var(--space-2) 0" }}>
         <input
           type="password"
+          aria-label="Admin secret"
           value={secret}
           onChange={(e) => setSecret(e.target.value)}
           placeholder="Admin secret"

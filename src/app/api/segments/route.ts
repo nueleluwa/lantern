@@ -10,11 +10,20 @@ import {
   recordSegmentInCacheKey,
   SEGMENT_CACHE_TTL_SECONDS,
 } from "@/lib/redis";
+import { apiError, apiValidationError } from "@/lib/api-error";
 
 // ~0.01deg ~= 1.1km at this latitude — coarse enough that nearby pans at
 // the same zoom collapse onto the same cache key, fine enough that a
 // single grid cell isn't so large the cached response bloats.
 const CACHE_GRID_DEGREES = 0.01;
+
+// audit-project review: zoom was only ever used in the cache key, never
+// to bound the query — a client could request a city-wide bbox at
+// zoom=0 with no cap, forcing a large scan and a multi-MB response.
+// 4 sq degrees is generous even for the whole of a large metro area at
+// this latitude; MAX_ROWS is a hard backstop regardless of bbox size.
+const MAX_BBOX_AREA_DEGREES = 4;
+const MAX_ROWS = 2000;
 
 function snapBboxToGrid(bbox: [number, number, number, number]): [number, number, number, number] {
   const [minLng, minLat, maxLng, maxLat] = bbox;
@@ -46,9 +55,15 @@ export async function GET(request: NextRequest) {
     Object.fromEntries(request.nextUrl.searchParams)
   );
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationError(parsed.error);
   }
   const { bbox, time_of_day, zoom } = parsed.data;
+  const [rawMinLng, rawMinLat, rawMaxLng, rawMaxLat] = bbox;
+  const area = Math.abs(rawMaxLng - rawMinLng) * Math.abs(rawMaxLat - rawMinLat);
+  if (area > MAX_BBOX_AREA_DEGREES) {
+    return apiError("bad_request", `bbox area too large (max ${MAX_BBOX_AREA_DEGREES} sq degrees)`);
+  }
+
   // Snap to a coarse grid (outward, so the queried area always fully
   // covers what the client asked for) before building the cache key —
   // audit-project review found that using the raw, full-precision
@@ -81,7 +96,8 @@ export async function GET(request: NextRequest) {
     .from(segments)
     .where(
       sql`ST_Intersects(${segments.geometry}, ST_MakeEnvelope(${minLng}, ${minLat}, ${maxLng}, ${maxLat}, 4326))`
-    );
+    )
+    .limit(MAX_ROWS);
 
   const featureCollection: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",

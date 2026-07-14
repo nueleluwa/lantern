@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq, ne } from "drizzle-orm";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { segments, tags } from "@/db/schema";
+import { apiError } from "@/lib/api-error";
 
 // DATA_MODEL.md API sketch: "GET /segments/:id -> full detail incl.
 // recent tags, breakdown". Backs the segment detail bottom sheet
@@ -12,10 +14,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  // audit-project review: an unvalidated malformed id caused an
+  // unhandled Postgres exception (invalid input syntax for type uuid)
+  // instead of a clean 400.
+  if (!z.string().uuid().safeParse(id).success) {
+    return apiError("bad_request", "id must be a valid UUID");
+  }
 
   const [segment] = await db.select().from(segments).where(eq(segments.id, id));
   if (!segment) {
-    return NextResponse.json({ error: "Segment not found" }, { status: 404 });
+    return apiError("not_found", "Segment not found");
   }
 
   const recentTags = await db

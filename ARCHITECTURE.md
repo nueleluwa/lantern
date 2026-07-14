@@ -2,6 +2,8 @@
 
 This doc covers what `DATA_MODEL.md` doesn't: requirements, data flow, caching, and what happens as this scales past one neighborhood. Read alongside `DATA_MODEL.md` (schema) and `MVP_SCOPE.md` (phasing).
 
+> **Deployment target changed mid-project, this doc wasn't rewritten (flagged by audit-project review).** §1's "Coolify/VPS" constraint and §3's "background job/queue consumer" mechanism describe the *original* plan. The actual deployment is Vercel + Supabase + Upstash: recalculation runs via `next/server`'s `after()` on tag write and Vercel Cron Jobs hourly, not a persistent queue consumer. See `CHANGELOG.md`'s 2026-07-13 entry ("Recalculation mechanism on Vercel") for the reasoning. Kept here unedited as the record of the original design intent — read `README.md` and `CHANGELOG.md` for what's actually running.
+
 ## 1. Requirements
 
 **Functional** — covered in full by `PRD.md`. Summary: view tagged segments on a map, submit a tag, moderate flagged tags, aggregate scores with time-decay.

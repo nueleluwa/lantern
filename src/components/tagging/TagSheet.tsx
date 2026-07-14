@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { XMarkIcon } from "@heroicons/react/24/solid";
 import { TagForm } from "./TagForm";
 import { LitTonightQuickAction } from "./LitTonightQuickAction";
@@ -59,13 +59,54 @@ export function TagSheet({
 }) {
   const [detail, setDetail] = useState<SegmentDetail | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
+    // audit-project review: tapping segment A then quickly segment B
+    // before A's fetch resolves could let A's response land after B's
+    // and overwrite `detail` with the wrong segment's data.
+    let cancelled = false;
     setDetail(null);
     fetch(`/api/segments/${segmentId}`)
       .then((res) => res.json())
-      .then(setDetail);
+      .then((data) => {
+        if (!cancelled) setDetail(data);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [segmentId]);
+
+  // role="dialog" without any actual modal behavior isn't accessible —
+  // audit-project review found no focus moved on open, no focus trap,
+  // and no Escape-to-close anywhere in the codebase.
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, []);
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Escape") {
+      onClose();
+      return;
+    }
+    if (e.key !== "Tab" || !dialogRef.current) return;
+
+    const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+      'button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
 
   const band = detail
     ? timeOfDay === "day"
@@ -75,8 +116,11 @@ export function TagSheet({
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
+      aria-modal="true"
       aria-label="Street segment detail"
+      onKeyDown={handleKeyDown}
       style={{
         position: "absolute",
         left: 0,
@@ -103,6 +147,7 @@ export function TagSheet({
       />
 
       <button
+        ref={closeButtonRef}
         type="button"
         onClick={onClose}
         aria-label="Close street detail"

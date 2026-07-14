@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { findSuggestedRoute } from "@/lib/routing";
+import { apiError, apiValidationError } from "@/lib/api-error";
 
 const lngLat = z
   .string()
@@ -22,17 +23,14 @@ const querySchema = z.object({
 export async function GET(request: NextRequest) {
   const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams));
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationError(parsed.error);
   }
 
   const { from, to, time_of_day } = parsed.data;
   const route = await findSuggestedRoute(from, to, time_of_day);
 
   if (!route) {
-    return NextResponse.json(
-      { error: "No route found between those points" },
-      { status: 404 }
-    );
+    return apiError("not_found", "No route found between those points");
   }
 
   return NextResponse.json(route);

@@ -1,0 +1,1 @@
+ALTER TABLE "contributors" ADD CONSTRAINT "contributors_display_handle_unique" UNIQUE("display_handle");

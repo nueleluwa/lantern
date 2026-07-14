@@ -9,6 +9,7 @@ import { invalidateSegmentCache } from "@/lib/redis";
 import { recalculateSegment } from "@/lib/scoring";
 import { getContributorIdFromCookie } from "@/lib/contributor-session";
 import { recordContribution } from "@/lib/contributor-progress";
+import { apiError, apiValidationError } from "@/lib/api-error";
 
 const bodySchema = z.object({
   timeOfDay: z.enum(["day", "evening", "night"]),
@@ -31,29 +32,29 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: segmentId } = await params;
+  if (!z.string().uuid().safeParse(segmentId).success) {
+    return apiError("bad_request", "id must be a valid UUID");
+  }
 
   const deviceId = request.headers.get("x-device-id");
   if (!deviceId) {
-    return NextResponse.json({ error: "Missing X-Device-Id header" }, { status: 400 });
+    return apiError("bad_request", "Missing X-Device-Id header");
   }
 
   const rateLimit = await checkAndIncrementTagRateLimit(deviceId);
   if (!rateLimit.allowed) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded — try again later" },
-      { status: 429 }
-    );
+    return apiError("rate_limited", "Rate limit exceeded — try again later");
   }
 
   const parsed = bodySchema.safeParse(await request.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationError(parsed.error);
   }
   const body = parsed.data;
 
   const [segment] = await db.select({ id: segments.id }).from(segments).where(eq(segments.id, segmentId));
   if (!segment) {
-    return NextResponse.json({ error: "Segment not found" }, { status: 404 });
+    return apiError("not_found", "Segment not found");
   }
 
   const contributorId = await getContributorIdFromCookie();

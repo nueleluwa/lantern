@@ -16,7 +16,7 @@
 
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import * as schema from "../src/db/schema";
 
 type Category =
@@ -91,7 +91,7 @@ async function main() {
 
   console.log(`Importing ${rows.length} rows from "${source}"...`);
 
-  const client = postgres(process.env.DATABASE_URL!);
+  const client = postgres(process.env.DATABASE_URL!, { prepare: false });
   const db = drizzle(client, { schema });
 
   let inserted = 0;
@@ -118,6 +118,16 @@ async function main() {
       kind: "infrastructure",
       seedSource: source,
     });
+    // audit-project review: this previously never touched
+    // segments.tag_count/last_tagged_at, so partner-seeded contributions
+    // permanently undercounted in /api/segments and /api/v1/export.
+    await db
+      .update(schema.segments)
+      .set({
+        tagCount: sql`${schema.segments.tagCount} + 1`,
+        lastTaggedAt: new Date(),
+      })
+      .where(eq(schema.segments.id, row.segment_id));
     inserted++;
   }
 

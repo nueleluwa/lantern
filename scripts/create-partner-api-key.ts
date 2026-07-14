@@ -19,7 +19,7 @@ async function main() {
   const { name } = parseArgs();
   const rawKey = crypto.randomUUID() + crypto.randomUUID();
 
-  const client = postgres(process.env.DATABASE_URL!);
+  const client = postgres(process.env.DATABASE_URL!, { prepare: false });
   const db = drizzle(client, { schema });
 
   await db.insert(schema.partnerApiKeys).values({

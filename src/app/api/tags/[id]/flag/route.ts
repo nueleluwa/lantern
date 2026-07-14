@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { tags, moderationFlags } from "@/db/schema";
 import { checkAndIncrementFlagRateLimit } from "@/lib/rate-limit";
 import { getContributorIdFromCookie } from "@/lib/contributor-session";
+import { apiError, apiValidationError } from "@/lib/api-error";
 
 const bodySchema = z.object({
   reason: z.enum(["inaccurate", "spam", "hate_or_profiling", "duplicate"]),
@@ -19,28 +20,28 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: tagId } = await params;
+  if (!z.string().uuid().safeParse(tagId).success) {
+    return apiError("bad_request", "id must be a valid UUID");
+  }
 
   const deviceId = request.headers.get("x-device-id");
   if (!deviceId) {
-    return NextResponse.json({ error: "Missing X-Device-Id header" }, { status: 400 });
+    return apiError("bad_request", "Missing X-Device-Id header");
   }
 
   const rateLimit = await checkAndIncrementFlagRateLimit(deviceId);
   if (!rateLimit.allowed) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded — try again later" },
-      { status: 429 }
-    );
+    return apiError("rate_limited", "Rate limit exceeded — try again later");
   }
 
   const parsed = bodySchema.safeParse(await request.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return apiValidationError(parsed.error);
   }
 
   const [tag] = await db.select({ id: tags.id }).from(tags).where(eq(tags.id, tagId));
   if (!tag) {
-    return NextResponse.json({ error: "Tag not found" }, { status: 404 });
+    return apiError("not_found", "Tag not found");
   }
 
   // Identity is derived server-side from the session cookie, never taken

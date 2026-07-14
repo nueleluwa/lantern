@@ -106,7 +106,9 @@ export const segments = pgTable("segments", {
 // derivable from a real name/phone/account by default).
 export const contributors = pgTable("contributors", {
   id: uuid("id").defaultRandom().primaryKey(),
-  displayHandle: text("display_handle").notNull(),
+  // Unique so two contributors can't silently collide on the same
+  // handle with no error returned — found by audit-project review.
+  displayHandle: text("display_handle").notNull().unique(),
   joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
   tagCount: integer("tag_count").notNull().default(0),
   trustScore: real("trust_score").notNull().default(0),

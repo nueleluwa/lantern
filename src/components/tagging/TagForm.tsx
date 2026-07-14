@@ -122,6 +122,7 @@ export function TagForm({
             <button
               key={opt.value}
               type="button"
+              className="lantern-btn"
               aria-pressed={category === opt.value}
               onClick={() => setCategory(category === opt.value ? null : opt.value)}
               style={{
@@ -141,6 +142,7 @@ export function TagForm({
       </div>
 
       <textarea
+        aria-label="Optional note"
         value={note}
         maxLength={280}
         onChange={(e) => setNote(e.target.value)}
@@ -160,6 +162,7 @@ export function TagForm({
 
       <button
         type="button"
+        className="lantern-btn"
         disabled={!canSubmit}
         onClick={handleSubmit}
         style={{
@@ -172,9 +175,13 @@ export function TagForm({
           fontWeight: 500,
           opacity: canSubmit ? 1 : 0.4,
           cursor: canSubmit ? "pointer" : "not-allowed",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
         }}
       >
-        {state === "submitting" ? "Saving…" : "Tag this street"}
+        {state === "submitting" ? <span className="spinner-inline" aria-hidden /> : "Tag this street"}
       </button>
 
       {state === "queued-offline" && (
@@ -218,6 +225,7 @@ function ButtonGroup<T extends string>({
             <button
               key={opt.value}
               type="button"
+              className="lantern-btn"
               aria-pressed={selected}
               onClick={() => onChange(opt.value)}
               style={{

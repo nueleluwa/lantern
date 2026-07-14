@@ -60,7 +60,16 @@ export function MapView() {
   useEffect(() => {
     if (!map) return;
 
+    // Aborts the previous in-flight request on each new call — audit-
+    // project review found rapid pan/zoom could let an older, slower
+    // response's setSegments() run after a newer one, showing a stale
+    // viewport's segments.
+    let controller: AbortController | null = null;
+
     const fetchForCurrentView = async () => {
+      controller?.abort();
+      controller = new AbortController();
+
       const bounds = map.getBounds();
       const bbox = [
         bounds.getWest(),
@@ -69,60 +78,67 @@ export function MapView() {
         bounds.getNorth(),
       ].join(",");
 
-      const res = await fetch(
-        `/api/segments?bbox=${bbox}&time_of_day=${timeOfDay}`
-      );
-      if (!res.ok) return;
-      setSegments(await res.json());
+      try {
+        const res = await fetch(
+          `/api/segments?bbox=${bbox}&time_of_day=${timeOfDay}`,
+          { signal: controller.signal }
+        );
+        if (!res.ok) return;
+        setSegments(await res.json());
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        throw err;
+      }
     };
 
     fetchForCurrentView();
     map.on("moveend", fetchForCurrentView);
     return () => {
+      controller?.abort();
       map.off("moveend", fetchForCurrentView);
     };
   }, [map, timeOfDay]);
 
   // PRD.md Flow A step 3: "Tap a segment -> see tag breakdown..."
+  //
+  // Queries rendered features at click/move time rather than binding
+  // per-layer listeners (map.on('click', layerId, cb)) — those only
+  // attach successfully if the layer already exists at attach time, but
+  // SegmentLayer creates the layers asynchronously from this same
+  // segments data. Binding per-layer meant this effect had to depend on
+  // `segments` just to retry attachment once the layers appeared, which
+  // also re-attached listeners on every viewport refetch. A plain
+  // map-level handler that queries whichever layers currently exist
+  // works regardless of load order and only needs [map, mode].
   useEffect(() => {
     if (!map) return;
 
     const layerIds = ["segments-safe", "segments-caution", "segments-avoid", "segments-unrated"];
+    const existingLayerIds = () => layerIds.filter((id) => map.getLayer(id));
 
-    const handleClick = (e: maplibregl.MapLayerMouseEvent) => {
+    const handleClick = (e: maplibregl.MapMouseEvent) => {
       if (mode === "routing") return; // routing mode uses its own map-level click handler below
-      const feature = e.features?.[0];
+      const layers = existingLayerIds();
+      if (layers.length === 0) return;
+      const feature = map.queryRenderedFeatures(e.point, { layers })[0];
       const id = feature?.properties?.id;
       if (id) setSelectedSegmentId(id);
     };
 
-    const setPointer = () => {
-      map.getCanvas().style.cursor = "pointer";
-    };
-    const unsetPointer = () => {
-      map.getCanvas().style.cursor = "";
-    };
-
-    const attach = () => {
-      for (const layerId of layerIds) {
-        if (!map.getLayer(layerId)) continue;
-        map.on("click", layerId, handleClick);
-        map.on("mouseenter", layerId, setPointer);
-        map.on("mouseleave", layerId, unsetPointer);
-      }
+    const handleMouseMove = (e: maplibregl.MapMouseEvent) => {
+      const layers = existingLayerIds();
+      const hovering = layers.length > 0 && map.queryRenderedFeatures(e.point, { layers }).length > 0;
+      map.getCanvas().style.cursor = hovering ? "pointer" : "";
     };
 
-    if (map.isStyleLoaded()) attach();
-    else map.once("load", attach);
+    map.on("click", handleClick);
+    map.on("mousemove", handleMouseMove);
 
     return () => {
-      for (const layerId of layerIds) {
-        map.off("click", layerId, handleClick);
-        map.off("mouseenter", layerId, setPointer);
-        map.off("mouseleave", layerId, unsetPointer);
-      }
+      map.off("click", handleClick);
+      map.off("mousemove", handleMouseMove);
     };
-  }, [map, segments, mode]);
+  }, [map, mode]);
 
   // Phase 3 routing mode: a plain map click (not tied to a segment
   // layer) sets the picked start/end point.

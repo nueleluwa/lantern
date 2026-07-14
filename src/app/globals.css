@@ -34,6 +34,14 @@ select:focus-visible {
   outline-offset: var(--focus-ring-offset);
 }
 
+/* DESIGN_SYSTEM.md Interaction states: "Pressed: Fill darkens ~10%...
+   opacity/color change only, never a transform." audit-project review
+   found no button anywhere implemented this. Applied via class (not
+   inline style, since inline styles can't express :active). */
+.lantern-btn:active {
+  filter: brightness(0.9);
+}
+
 .spinner {
   width: 32px;
   height: 32px;
@@ -41,6 +49,22 @@ select:focus-visible {
   border-top-color: var(--lamp-500);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+.spinner-inline {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--night-950);
+  border-top-color: var(--lamp-300);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner-inline {
+    animation: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
